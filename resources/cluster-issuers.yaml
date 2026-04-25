@@ -14,7 +14,7 @@ spec:
     # Let's Encrypt PRODUCTION server
     server: https://acme-v02.api.letsencrypt.org/directory
     # ⚠️ IMPORTANT: Replace with your actual email address for notifications
-    email: straightre@gmail.com
+    email: user@example.com  # replaced at apply time by kind-setup.sh via $ACME_EMAIL
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:

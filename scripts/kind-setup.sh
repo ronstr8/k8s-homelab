@@ -20,8 +20,8 @@ NODE_IMAGE="kindest/node:v1.31.0"
 # Storage path for persistent volumes on the host
 STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
 
-# Email for Let's Encrypt (ClusterIssuer)
-ACME_EMAIL="${ACME_EMAIL:-straightre@gmail.com}"
+# Email for Let's Encrypt (ClusterIssuer) — required for letsencrypt-prod
+: "${ACME_EMAIL:?ACME_EMAIL must be set (e.g. export ACME_EMAIL=you@example.com)}"
 
 echo "🔧 ${CLUSTER_NAME} Kind Setup"
 echo "======================"
@@ -67,7 +67,7 @@ nodes:
   - role: control-plane
     extraMounts:
       - hostPath: ${STORAGE_PATH}
-        containerPath: /mnt/moor-storage
+        containerPath: /mnt/k8s-volumes
     extraPortMappings:
       - containerPort: 80
         hostPort: 80
@@ -195,7 +195,7 @@ echo "   Registry:  localhost:${REGISTRY_PORT}"
 echo "   Cluster IP: ${NODE_IP}"
 echo ""
 echo "Common domain mappings (add to /etc/hosts):"
-echo "   ${NODE_IP} wordwank.fazigu.org"
+echo "   ${NODE_IP} wordwonk.fazigu.org"
 echo "   ${NODE_IP} poker.fazigu.org"
 echo "   ${NODE_IP} moor.fazigu.org"
 echo ""

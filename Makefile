@@ -1,3 +1,11 @@
+CLUSTER_NAME  ?= homelab
+REGISTRY_NAME ?= kind-registry
+REGISTRY_PORT ?= 5000
+STORAGE_PATH  ?= $(HOME)/.local/share/k8s-volumes
+ACME_EMAIL    ?=
+
+export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL
+
 .PHONY: all up down status logs fix-context clean
 
 all: up
