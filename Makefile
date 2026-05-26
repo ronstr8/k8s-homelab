@@ -1,20 +1,25 @@
-CLUSTER_NAME  ?= homelab
-REGISTRY_NAME ?= kind-registry
-REGISTRY_PORT ?= 5000
-STORAGE_PATH  ?= $(HOME)/.local/share/k8s-volumes
-ACME_EMAIL    ?=
+CLUSTER_NAME     ?= homelab
+REGISTRY_NAME    ?= kind-registry
+REGISTRY_PORT    ?= 5000
+STORAGE_PATH     ?= $(HOME)/.local/share/k8s-volumes
+ACME_EMAIL       ?=
+MONITORING       ?= false
+GRAFANA_PASSWORD ?= homelab
 
-export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL
+export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD
 
-.PHONY: all up down status logs fix-context clean
+.PHONY: all up down status logs fix-context clean monitoring monitoring-down
 
 all: up
 
 help:
 	@echo "Homelab Kubernetes Cluster (Kind)"
 	@echo "Usage:"
-	@echo "  make up      - Create the local Kind cluster and Docker registry"
-	@echo "  make down    - Destroy the Kind cluster and registry"
+	@echo "  make up                    - Create the local Kind cluster and Docker registry"
+	@echo "  make up MONITORING=true    - Also install the monitoring stack (Prometheus + Grafana)"
+	@echo "  make down                  - Destroy the Kind cluster and registry"
+	@echo "  make monitoring            - Install/upgrade monitoring stack on existing cluster"
+	@echo "  make monitoring-down       - Remove monitoring stack"
 
 up:
 	@bash scripts/kind-setup.sh
@@ -41,5 +46,11 @@ fix-context:
 logs:
 	@echo "📋 Dumping Kind control-plane logs..."
 	@docker logs $$(CLUSTER_NAME:-homelab)-control-plane
+
+monitoring:
+	@bash scripts/monitoring-setup.sh
+
+monitoring-down:
+	@bash scripts/monitoring-teardown.sh
 
 clean:

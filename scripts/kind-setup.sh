@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kind cluster setup for local development (homelab)
-# Supports wordwank, poker, and moor projects.
+# Supports logodal, poker, and moor projects.
 # 
 # Features:
 # - Local Docker registry on port 5000
@@ -194,8 +194,15 @@ echo "✅ Kind cluster '${CLUSTER_NAME}' is ready!"
 echo "   Registry:  localhost:${REGISTRY_PORT}"
 echo "   Cluster IP: ${NODE_IP}"
 echo ""
-echo "Common domain mappings (add to /etc/hosts):"
-echo "   ${NODE_IP} wordwonk.fazigu.org"
+echo "Add to /etc/hosts:"
+echo "   ${NODE_IP} logodal.com"
 echo "   ${NODE_IP} poker.fazigu.org"
 echo "   ${NODE_IP} moor.fazigu.org"
+
+# ── 9. Monitoring (optional) ─────────────────────────────────────────
+if [ "${MONITORING:-false}" = "true" ]; then
+  bash "$(dirname "$0")/monitoring-setup.sh"
+  echo "   ${NODE_IP} grafana.fazigu.org"
+fi
+
 echo ""
