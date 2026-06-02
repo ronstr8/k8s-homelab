@@ -1,3 +1,7 @@
+# Load local config — copy .env.example to .env and fill it in.
+# Values here override the ?= defaults below; command-line args override everything.
+-include .env
+
 CLUSTER_NAME     ?= homelab
 REGISTRY_NAME    ?= kind-registry
 REGISTRY_PORT    ?= 5000

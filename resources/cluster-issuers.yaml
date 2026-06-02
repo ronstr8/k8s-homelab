@@ -13,7 +13,7 @@ spec:
   acme:
     # Let's Encrypt STAGING server — use this first; no rate limits
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: user@example.com  # replaced at apply time by kind-setup.sh via $ACME_EMAIL
+    email: user@example.com
     privateKeySecretRef:
       name: letsencrypt-staging
     solvers:
@@ -29,7 +29,7 @@ spec:
   acme:
     # Let's Encrypt PRODUCTION server — only use once staging works
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: user@example.com  # replaced at apply time by kind-setup.sh via $ACME_EMAIL
+    email: user@example.com
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
