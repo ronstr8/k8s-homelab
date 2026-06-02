@@ -9,6 +9,14 @@ STORAGE_PATH     ?= $(HOME)/.local/share/k8s-volumes
 ACME_EMAIL       ?=
 MONITORING       ?= false
 GRAFANA_PASSWORD ?= homelab
+TEARDOWN_GRACE   ?= 60
+
+# ── Component versions — pin these so make recreate restores identically ─────
+CERT_MANAGER_VERSION     ?= v1.14.2
+INGRESS_NGINX_VERSION    ?= controller-v1.11.3
+PROMETHEUS_CHART_VERSION ?=
+# Leave PROMETHEUS_CHART_VERSION empty for latest, or pin after first install:
+#   helm list -n monitoring -o json | jq -r '.[0].chart'
 
 # ── GPU ──────────────────────────────────────────────────────────────────────
 # GPU_ENABLED=true exposes the host GPU to the KinD node and installs the
@@ -56,7 +64,8 @@ HERMES_CPU_LIM                ?= 2
 HERMES_MEM_REQ                ?= 512Mi
 HERMES_MEM_LIM                ?= 2Gi
 
-export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD
+export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE
+export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_NAMESPACE OLLAMA_STORAGE
 export OLLAMA_CPU_REQ OLLAMA_CPU_LIM OLLAMA_MEM_REQ OLLAMA_MEM_LIM

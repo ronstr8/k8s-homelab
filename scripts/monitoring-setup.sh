@@ -17,10 +17,14 @@ helm repo update prometheus-community
 
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 
+VERSION_FLAG=""
+[[ -n "${PROMETHEUS_CHART_VERSION:-}" ]] && VERSION_FLAG="--version ${PROMETHEUS_CHART_VERSION}"
+
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --values resources/monitoring-values.yaml \
   --set grafana.adminPassword="${GRAFANA_PASSWORD}" \
+  ${VERSION_FLAG} \
   --timeout 10m \
   --wait
 

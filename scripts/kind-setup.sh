@@ -281,7 +281,7 @@ EOF
 
 # ── 5. Ingress Controller (nginx) ────────────────────────────────────
 echo "🌐 Deploying ingress-nginx controller..."
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
+kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION:-controller-v1.11.3}/deploy/static/provider/kind/deploy.yaml"
 
 echo "⏳ Waiting for ingress-nginx to be ready..."
 # Wait for the deployment to exist first
@@ -292,7 +292,7 @@ kubectl wait --namespace ingress-nginx \
 
 # ── 6. cert-manager ──────────────────────────────────────────────────
 echo "🔐 Installing cert-manager..."
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.2/cert-manager.yaml
+kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION:-v1.14.2}/cert-manager.yaml"
 
 echo "⏳ Waiting for cert-manager components to be ready..."
 for dep in cert-manager cert-manager-cainjector cert-manager-webhook; do
