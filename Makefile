@@ -65,13 +65,14 @@ export HERMES_DASHBOARD HERMES_DASHBOARD_PORT HERMES_DASHBOARD_INGRESS_HOST
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down status logs fix-context clean monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down status logs fix-context clean env monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
 help:
 	@echo "Homelab Kubernetes Cluster (Kind)"
 	@echo "Usage:"
+	@echo "  make env                            - Copy .env.example → .env (first-time setup)"
 	@echo "  make up                             - Create the local Kind cluster and Docker registry"
 	@echo "  make up MONITORING=true             - Also install monitoring (Prometheus + Grafana)"
 	@echo "  make up GPU_ENABLED=true            - Expose host GPU to cluster + install device plugin"
@@ -103,6 +104,10 @@ help:
 	@echo "  HERMES_DASHBOARD_INGRESS_HOST=      - Hostname for dashboard Ingress"
 	@echo "  HERMES_CPU_REQ=500m  HERMES_CPU_LIM=2"
 	@echo "  HERMES_MEM_REQ=512Mi  HERMES_MEM_LIM=2Gi"
+
+env:
+	@if [ -f .env ]; then echo ".env already exists — edit it directly."; \
+	else cp .env.example .env && echo "Created .env — open it and set ACME_EMAIL at minimum."; fi
 
 up:
 	@bash scripts/kind-setup.sh
