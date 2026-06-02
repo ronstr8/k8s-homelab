@@ -1,0 +1,239 @@
+#!/bin/bash
+# Deploy Ollama (local LLM inference) into the Kind cluster.
+# The pod pulls OLLAMA_MODEL at startup; subsequent restarts reuse the cached data.
+#
+# Variables (all have defaults; export or pass via make):
+#   OLLAMA_MODEL, OLLAMA_NAMESPACE, OLLAMA_STORAGE
+#   OLLAMA_CPU_REQ, OLLAMA_CPU_LIM, OLLAMA_MEM_REQ, OLLAMA_MEM_LIM
+#   OLLAMA_GPU, OLLAMA_GPU_COUNT   -- request nvidia.com/gpu resource
+#   OLLAMA_INGRESS_HOST            -- empty = ClusterIP only
+#   GPU_ENABLED                    -- deploy NVIDIA device plugin
+#   STORAGE_PATH                   -- host base path for PV
+
+set -euo pipefail
+
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
+OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
+OLLAMA_STORAGE="${OLLAMA_STORAGE:-20Gi}"
+OLLAMA_CPU_REQ="${OLLAMA_CPU_REQ:-2}"
+OLLAMA_CPU_LIM="${OLLAMA_CPU_LIM:-4}"
+OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-4Gi}"
+OLLAMA_MEM_LIM="${OLLAMA_MEM_LIM:-8Gi}"
+OLLAMA_GPU="${OLLAMA_GPU:-false}"
+OLLAMA_GPU_COUNT="${OLLAMA_GPU_COUNT:-1}"
+OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"
+GPU_ENABLED="${GPU_ENABLED:-false}"
+NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
+STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
+
+echo "🦙 Installing Ollama"
+echo "   model:     ${OLLAMA_MODEL}"
+echo "   namespace: ${OLLAMA_NAMESPACE}"
+echo "   storage:   ${OLLAMA_STORAGE} at ${STORAGE_PATH}/ollama"
+echo "   resources: cpu ${OLLAMA_CPU_REQ}-${OLLAMA_CPU_LIM}, mem ${OLLAMA_MEM_REQ}-${OLLAMA_MEM_LIM}"
+[[ "${OLLAMA_GPU}" == "true" ]] && echo "   gpu:       ${OLLAMA_GPU_COUNT}x nvidia.com/gpu"
+[[ -n "${OLLAMA_INGRESS_HOST}" ]] && echo "   ingress:   http://${OLLAMA_INGRESS_HOST}"
+
+# ── Prerequisites ─────────────────────────────────────────────────────────────
+if ! kubectl cluster-info &>/dev/null; then
+  echo "❌ Cannot reach cluster. Run 'make up' first."
+  exit 1
+fi
+
+if [[ "${OLLAMA_GPU}" == "true" && "${GPU_ENABLED}" != "true" ]]; then
+  echo "⚠️  OLLAMA_GPU=true but GPU_ENABLED=false."
+  echo "   The pod will request nvidia.com/gpu but the device plugin may not be installed."
+  echo "   Run with GPU_ENABLED=true or set OLLAMA_GPU=false."
+fi
+
+# ── NVIDIA device plugin (idempotent, only when GPU is cluster-level enabled) ─
+if [[ "${GPU_ENABLED}" == "true" ]]; then
+  echo "🎮 Ensuring NVIDIA device plugin is deployed..."
+  kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/${NVIDIA_DEVICE_PLUGIN_VERSION}/deployments/static/nvidia-device-plugin.yml"
+fi
+
+# ── Host storage directory ────────────────────────────────────────────────────
+mkdir -p "${STORAGE_PATH}/ollama"
+
+# ── Build conditional YAML fragments ─────────────────────────────────────────
+
+# GPU resource lines injected into requests/limits blocks
+GPU_RESOURCE_LINE=""
+if [[ "${OLLAMA_GPU}" == "true" ]]; then
+  GPU_RESOURCE_LINE="              nvidia.com/gpu: \"${OLLAMA_GPU_COUNT}\""
+fi
+
+# Optional Ingress manifest (only when OLLAMA_INGRESS_HOST is set)
+INGRESS_MANIFEST=""
+if [[ -n "${OLLAMA_INGRESS_HOST}" ]]; then
+  INGRESS_MANIFEST=$(cat <<INGRESS
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ollama
+  namespace: ${OLLAMA_NAMESPACE}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ${OLLAMA_INGRESS_HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ollama
+                port:
+                  number: 11434
+INGRESS
+)
+fi
+
+# ── Apply manifests ───────────────────────────────────────────────────────────
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${OLLAMA_NAMESPACE}
+---
+# PV pre-bound to the namespace PVC so it isn't claimed by other workloads
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-models-pv
+spec:
+  capacity:
+    storage: ${OLLAMA_STORAGE}
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: ${STORAGE_PATH}/ollama
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: ${OLLAMA_NAMESPACE}
+    name: ollama-models
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ${OLLAMA_NAMESPACE}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: ${OLLAMA_STORAGE}
+  storageClassName: ""
+  volumeName: ollama-models-pv
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ${OLLAMA_NAMESPACE}
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          # Start server in background, wait for it, pull the configured model,
+          # then foreground the server process. On restarts the model is already
+          # cached in the PVC so the pull is a fast no-op.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              ollama serve &
+              _pid=\$!
+              echo "Waiting for Ollama server..."
+              until curl -sf http://localhost:11434/ >/dev/null 2>&1; do sleep 2; done
+              echo "Pulling model: ${OLLAMA_MODEL}"
+              ollama pull ${OLLAMA_MODEL}
+              echo "Model ready — server running (pid \$_pid)"
+              wait \$_pid
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            - name: OLLAMA_MODELS
+              value: "/root/.ollama/models"
+          ports:
+            - containerPort: 11434
+              name: api
+          resources:
+            requests:
+              cpu: "${OLLAMA_CPU_REQ}"
+              memory: "${OLLAMA_MEM_REQ}"
+${GPU_RESOURCE_LINE}
+            limits:
+              cpu: "${OLLAMA_CPU_LIM}"
+              memory: "${OLLAMA_MEM_LIM}"
+${GPU_RESOURCE_LINE}
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 60
+            periodSeconds: 20
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ${OLLAMA_NAMESPACE}
+  labels:
+    app: ollama
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: api
+      protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+${INGRESS_MANIFEST}
+EOF
+
+echo ""
+echo "✅ Ollama deployed!"
+echo "   Model '${OLLAMA_MODEL}' will be pulled at pod startup."
+echo "   In-cluster endpoint: http://ollama.${OLLAMA_NAMESPACE}.svc.cluster.local:11434"
+if [[ -n "${OLLAMA_INGRESS_HOST}" ]]; then
+  echo "   Ingress: http://${OLLAMA_INGRESS_HOST}"
+else
+  echo "   Port-forward: kubectl port-forward -n ${OLLAMA_NAMESPACE} svc/ollama 11434:11434"
+fi
+echo ""
+echo "⏳ Watch pod startup: kubectl logs -n ${OLLAMA_NAMESPACE} -l app=ollama -f"
+echo ""

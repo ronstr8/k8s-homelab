@@ -23,8 +23,62 @@ STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
 # Email for Let's Encrypt (ClusterIssuer) — required for letsencrypt-prod
 : "${ACME_EMAIL:?ACME_EMAIL must be set (e.g. export ACME_EMAIL=you@example.com)}"
 
+# GPU
+GPU_ENABLED="${GPU_ENABLED:-false}"
+GPU_VENDOR="${GPU_VENDOR:-nvidia}"
+NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
+
 echo "🔧 ${CLUSTER_NAME} Kind Setup"
 echo "======================"
+
+# ── GPU Preflight ────────────────────────────────────────────────────────────
+if [[ "${GPU_ENABLED}" == "true" ]]; then
+  echo "🎮 GPU_ENABLED=true — checking prerequisites (vendor: ${GPU_VENDOR})..."
+
+  if [[ "${GPU_VENDOR}" != "nvidia" ]]; then
+    echo "⚠️  GPU_VENDOR=${GPU_VENDOR} is not yet supported. Only 'nvidia' is implemented."
+    echo "   Continuing without GPU support."
+    GPU_ENABLED="false"
+  else
+    _gpu_ok=true
+
+    if command -v nvidia-smi &>/dev/null; then
+      echo "   ✅ nvidia-smi found"
+      nvidia-smi -L 2>/dev/null | sed 's/^/      /' || true
+    else
+      echo "   ⚠️  nvidia-smi not found — is the NVIDIA driver installed?"
+      _gpu_ok=false
+    fi
+
+    if ! nvidia-container-cli --version &>/dev/null 2>&1; then
+      echo "   ⚠️  nvidia-container-toolkit not found."
+      echo "      Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+      _gpu_ok=false
+    else
+      echo "   ✅ nvidia-container-toolkit found"
+    fi
+
+    _docker_runtime=$(docker info --format '{{.DefaultRuntime}}' 2>/dev/null || echo "unknown")
+    if [[ "${_docker_runtime}" != "nvidia" ]]; then
+      echo "   ⚠️  Docker default runtime is '${_docker_runtime}', expected 'nvidia'."
+      echo "      Add to /etc/docker/daemon.json and restart Docker:"
+      echo '      {'
+      echo '        "default-runtime": "nvidia",'
+      echo '        "runtimes": {'
+      echo '          "nvidia": { "path": "/usr/bin/nvidia-container-runtime", "runtimeArgs": [] }'
+      echo '        }'
+      echo '      }'
+      _gpu_ok=false
+    else
+      echo "   ✅ Docker default runtime is nvidia"
+    fi
+
+    if [[ "${_gpu_ok}" == "false" ]]; then
+      echo "   ❌ GPU prerequisites not met. Set GPU_ENABLED=false or fix the above."
+      exit 1
+    fi
+  fi
+fi
 
 # ── 0. Prepare Generic Host Storage ──────────────────────────────────
 echo "📂 Ensuring host storage root exists at ${STORAGE_PATH}..."
@@ -54,6 +108,20 @@ if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
   fi
 fi
 
+# Build optional GPU extraMount for the kind node.
+# Requires Docker default-runtime=nvidia so the nvidia-container-runtime
+# sees the /var/run/nvidia-container-devices/all sentinel and exposes all GPUs.
+GPU_KIND_MOUNT=""
+if [[ "${GPU_ENABLED}" == "true" ]]; then
+  if [ "${SHOULD_CREATE}" = true ]; then
+    GPU_KIND_MOUNT="      - hostPath: /dev/null
+        containerPath: /var/run/nvidia-container-devices/all"
+  else
+    echo "   ⚠️  Cluster already exists — GPU device mount cannot be added retroactively."
+    echo "      Run 'make recreate GPU_ENABLED=true' to rebuild with GPU passthrough."
+  fi
+fi
+
 if [ "$SHOULD_CREATE" = true ]; then
   echo "☸️  Creating Kind cluster '${CLUSTER_NAME}' using image ${NODE_IMAGE}..."
   cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --image "${NODE_IMAGE}" --config=-
@@ -68,6 +136,7 @@ nodes:
     extraMounts:
       - hostPath: ${STORAGE_PATH}
         containerPath: /mnt/k8s-volumes
+${GPU_KIND_MOUNT}
     extraPortMappings:
       - containerPort: 80
         hostPort: 80
@@ -199,10 +268,25 @@ echo "   ${NODE_IP} logodal.com"
 echo "   ${NODE_IP} poker.fazigu.org"
 echo "   ${NODE_IP} moor.fazigu.org"
 
-# ── 9. Monitoring (optional) ─────────────────────────────────────────
+# ── 9. GPU Device Plugin (optional) ─────────────────────────────────────────
+if [[ "${GPU_ENABLED}" == "true" ]]; then
+  echo "🎮 Deploying NVIDIA device plugin (${NVIDIA_DEVICE_PLUGIN_VERSION})..."
+  kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/${NVIDIA_DEVICE_PLUGIN_VERSION}/deployments/static/nvidia-device-plugin.yml"
+  echo "   ✅ nvidia.com/gpu resource will be available on GPU-equipped nodes."
+fi
+
+# ── 10. Monitoring (optional) ────────────────────────────────────────────────
 if [ "${MONITORING:-false}" = "true" ]; then
   bash "$(dirname "$0")/monitoring-setup.sh"
   echo "   ${NODE_IP} grafana.fazigu.org"
+fi
+
+# ── 11. Ollama (optional) ────────────────────────────────────────────────────
+if [ "${OLLAMA:-false}" = "true" ]; then
+  bash "$(dirname "$0")/ollama-setup.sh"
+  if [[ -n "${OLLAMA_INGRESS_HOST:-}" ]]; then
+    echo "   ${NODE_IP} ${OLLAMA_INGRESS_HOST}"
+  fi
 fi
 
 echo ""
