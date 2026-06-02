@@ -8,12 +8,27 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # Let's Encrypt STAGING server — use this first; no rate limits
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: user@example.com  # replaced at apply time by kind-setup.sh via $ACME_EMAIL
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
   name: letsencrypt-prod
 spec:
   acme:
-    # Let's Encrypt PRODUCTION server
+    # Let's Encrypt PRODUCTION server — only use once staging works
     server: https://acme-v02.api.letsencrypt.org/directory
-    # ⚠️ IMPORTANT: Replace with your actual email address for notifications
     email: user@example.com  # replaced at apply time by kind-setup.sh via $ACME_EMAIL
     privateKeySecretRef:
       name: letsencrypt-prod

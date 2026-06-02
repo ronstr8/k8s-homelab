@@ -23,6 +23,10 @@ STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
 # Email for Let's Encrypt (ClusterIssuer) — required for letsencrypt-prod
 : "${ACME_EMAIL:?ACME_EMAIL must be set (e.g. export ACME_EMAIL=you@example.com)}"
 
+# Host user identity — PV directories will be chowned to these values
+HOST_UID="${HOST_UID:-$(id -u)}"
+HOST_GID="${HOST_GID:-$(id -g)}"
+
 # GPU
 GPU_ENABLED="${GPU_ENABLED:-false}"
 GPU_VENDOR="${GPU_VENDOR:-nvidia}"
@@ -183,6 +187,44 @@ fi
 echo "🔌 Ensuring kubectl context is set for '${CLUSTER_NAME}'..."
 kind export kubeconfig --name "${CLUSTER_NAME}"
 
+# ── 3.5. Redirect local-path-provisioner → STORAGE_PATH ──────────────
+# Kind ships local-path-provisioner defaulting to /var/local-path-provisioner
+# (inside the node container, not on the host). Redirect it to /mnt/k8s-volumes
+# so all dynamically provisioned PVCs land under STORAGE_PATH on the host.
+# Also embed HOST_UID/HOST_GID in the setup script so new PV directories are
+# immediately owned by the host user rather than root.
+echo "💾 Redirecting local-path-provisioner → ${STORAGE_PATH}..."
+LPP_NS=""
+for _ns in local-path-storage kube-system; do
+  if kubectl get deployment local-path-provisioner -n "${_ns}" &>/dev/null 2>&1; then
+    LPP_NS="${_ns}"
+    break
+  fi
+done
+
+if [[ -n "${LPP_NS}" ]]; then
+  # Wait for provisioner to be ready before patching
+  kubectl wait -n "${LPP_NS}" \
+    --for=condition=available deployment/local-path-provisioner \
+    --timeout=60s
+
+  kubectl patch configmap local-path-config -n "${LPP_NS}" --type=merge \
+    --patch '{"data":{"config.json":"{\"nodePathMap\":[{\"node\":\"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\"paths\":[\"/mnt/k8s-volumes\"]}]}"}}'
+
+  # Patch the helper pod spec so new PV directories are chowned to HOST_UID:HOST_GID
+  # before the claiming pod starts. The helper runs as root by default, which is
+  # required for chown. Shell $vars are escaped (\$) so they expand inside the
+  # helper pod, not here; HOST_UID/HOST_GID are expanded here (they're known values).
+  kubectl patch configmap local-path-config -n "${LPP_NS}" --type=merge --patch \
+    "{\"data\":{\"setup\":\"#!/bin/sh\\nset -eu\\nwhile getopts 'm:s:p:' opt; do\\n  case \\\$opt in\\n    p) p=\\\"\\\$OPTARG\\\" ;;\\n  esac\\ndone\\nmkdir -m 0777 -p \\\"\\\${p}\\\"\\nchown ${HOST_UID}:${HOST_GID} \\\"\\\${p}\\\"\",\"teardown\":\"#!/bin/sh\\nset -eu\\nwhile getopts 'm:s:p:' opt; do\\n  case \\\$opt in\\n    p) p=\\\"\\\$OPTARG\\\" ;;\\n  esac\\ndone\\nrm -rf \\\"\\\${p}\\\"\"}}"
+
+  kubectl rollout restart deployment/local-path-provisioner -n "${LPP_NS}"
+  kubectl rollout status deployment/local-path-provisioner -n "${LPP_NS}" --timeout=60s
+  echo "   ✅ Dynamic PVCs will provision under ${STORAGE_PATH}/ owned by UID ${HOST_UID}:${HOST_GID}"
+else
+  echo "   ⚠️  local-path-provisioner not found — dynamic PVCs will use Kind's default path."
+fi
+
 # ── 4. Connect Registry to Kind Network ──────────────────────────────
 if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${REGISTRY_NAME}" 2>/dev/null)" = 'null' ] || \
    [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${REGISTRY_NAME}" 2>/dev/null)" = '' ]; then
@@ -217,7 +259,7 @@ EOF
 
 # ── 5. Ingress Controller (nginx) ────────────────────────────────────
 echo "🌐 Deploying ingress-nginx controller..."
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
 
 echo "⏳ Waiting for ingress-nginx to be ready..."
 # Wait for the deployment to exist first
@@ -238,11 +280,14 @@ for dep in cert-manager cert-manager-cainjector cert-manager-webhook; do
     --timeout=300s
 done
 
-echo "⏳ Giving cert-manager webhook 20s to stabilize..."
-sleep 20
+echo "⏳ Waiting for cert-manager webhook caBundle injection..."
+until kubectl get validatingwebhookconfiguration cert-manager-webhook \
+  -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null | grep -q '.'; do
+  sleep 3
+done
 
 echo "📜 Applying shared ClusterIssuers (Email: ${ACME_EMAIL})..."
-sed "s/email: .*/email: ${ACME_EMAIL}/" resources/cluster-issuers.yaml | kubectl apply -f -
+sed "s/^    email: .*/    email: ${ACME_EMAIL}/" resources/cluster-issuers.yaml | kubectl apply -f -
 
 # ── 7. Patch Ingress for Moor (Port 8888) ────────────────────────────
 echo "🛰️  Patching Ingress for Moor telnet (port 8888)..."

@@ -25,6 +25,8 @@ OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"
 GPU_ENABLED="${GPU_ENABLED:-false}"
 NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
 STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
+HOST_UID="${HOST_UID:-$(id -u)}"
+HOST_GID="${HOST_GID:-$(id -g)}"
 
 echo "🦙 Installing Ollama"
 echo "   model:     ${OLLAMA_MODEL}"
@@ -151,6 +153,22 @@ spec:
       labels:
         app: ollama
     spec:
+      # Run as the host user so model files on the host PV are user-owned.
+      securityContext:
+        runAsUser: ${HOST_UID}
+        runAsGroup: ${HOST_GID}
+        fsGroup: ${HOST_GID}
+      initContainers:
+        # Ensure the models directory is owned by HOST_UID before ollama starts.
+        # Necessary when the directory was previously written as root.
+        - name: chown-data
+          image: busybox:stable
+          command: ["chown", "-R", "${HOST_UID}:${HOST_GID}", "/ollama"]
+          volumeMounts:
+            - name: models
+              mountPath: /ollama
+          securityContext:
+            runAsUser: 0
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -172,7 +190,7 @@ spec:
             - name: OLLAMA_HOST
               value: "0.0.0.0"
             - name: OLLAMA_MODELS
-              value: "/root/.ollama/models"
+              value: "/ollama/models"
           ports:
             - containerPort: 11434
               name: api
@@ -187,7 +205,7 @@ ${GPU_RESOURCE_LINE}
 ${GPU_RESOURCE_LINE}
           volumeMounts:
             - name: models
-              mountPath: /root/.ollama
+              mountPath: /ollama
           readinessProbe:
             httpGet:
               path: /

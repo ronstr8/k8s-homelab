@@ -1,61 +1,272 @@
 # k8s-homelab
 
-Your centralized repository for managing local Kubernetes clusters using [Kind](https://kind.sigs.k8s.io/).
+A single-node Kubernetes cluster on your home machine using [Kind](https://kind.sigs.k8s.io/). Designed for running real workloads behind a cable modem — not a toy demo cluster.
+
+What you get out of the box:
+- Local Docker registry on `localhost:5000`
+- Nginx Ingress on ports 80, 443, and 8888
+- cert-manager with `selfsigned-issuer` and `letsencrypt-prod` ClusterIssuers
+- `local-path-provisioner` as the default `standard` StorageClass (Kind ships this)
+- Host-path storage mounted at `~/.local/share/k8s-volumes`
+
+Optional add-ons: monitoring (Prometheus + Grafana), Ollama (local LLM inference), Hermes Agent.
+
+---
 
 ## Prerequisites
 
-- **Docker**
-- **Kind**
-- **kubectl**
+- **Docker** — running and accessible without sudo
+- **Kind** — `brew install kind` or https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+- **kubectl** — https://kubernetes.io/docs/tasks/tools/
+- **Helm** — required for monitoring; optional otherwise
+- **An email address** — used in the Let's Encrypt ClusterIssuer
 
-## Cluster Management
+---
 
-By default, the cluster is named `homelab`.
-
-### Included Services
-
-- **Registry**: Local Docker registry on `localhost:5000`.
-- **Ingress**: Nginx Ingress Controller on 80/443 (with 8888 for telnet support).
-- **cert-manager**: Installed and configured with shared `ClusterIssuers`.
-
-## Cluster Management
-
-To spin up the cluster and all services:
+## Quick Start
 
 ```bash
+export ACME_EMAIL=you@example.com
 make up
 ```
 
-To tear everything down:
+That's it. The script is idempotent — re-running `make up` won't blow anything away.
+
+After it finishes, it prints a cluster IP. Add it to `/etc/hosts` for local name resolution:
+
+```
+<node-ip>  logodal.com poker.fazigu.org moor.fazigu.org
+```
+
+(There's no `make hosts` target yet — manual step for now.)
+
+---
+
+## GOTCHA: GPU and Ollama are on by default
+
+The Makefile defaults `GPU_ENABLED=true` and `OLLAMA=true`. If you don't have an NVIDIA GPU set up with `nvidia-container-toolkit` and Docker's default runtime set to `nvidia`, **`make up` will fail** at the GPU preflight check.
+
+**If you don't have a GPU:**
 
 ```bash
-make down
+make up GPU_ENABLED=false OLLAMA=false
 ```
+
+Or just export them:
+
+```bash
+export GPU_ENABLED=false
+export OLLAMA=false
+export ACME_EMAIL=you@example.com
+make up
+```
+
+---
+
+## Let's Encrypt on a Home Cable Modem
+
+The `letsencrypt-prod` ClusterIssuer is configured and ready, but it only works if:
+
+1. You have a domain name pointed at your public IP
+2. Your router forwards ports 80 and 443 to your machine
+3. Your ISP doesn't block inbound port 80 (many residential ISPs do)
+
+If any of that isn't true, **use `selfsigned-issuer` instead.** It works fine for local dev and avoids Let's Encrypt rate limits. Just reference it in your `Certificate` or `Ingress` annotations:
+
+```yaml
+cert-manager.io/cluster-issuer: selfsigned-issuer
+```
+
+The `letsencrypt-prod` issuer is there when you're ready — it just needs real public DNS resolution to do the ACME HTTP-01 challenge.
+
+---
+
+## Make Targets
+
+```bash
+make up              # Create cluster + all services
+make down            # Destroy cluster and registry
+make recreate        # down then up (required when changing GPU_ENABLED or HERMES)
+make status          # Show cluster/node/context state
+make fix-context     # Repair kubectl context if it breaks
+make logs            # Dump control-plane container logs
+make help            # Full variable reference
+```
+
+---
+
+## Configuration
+
+All variables can be exported or passed on the `make` command line.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `ACME_EMAIL` | (required) | Used in Let's Encrypt ClusterIssuer |
+| `CLUSTER_NAME` | `homelab` | |
+| `REGISTRY_PORT` | `5000` | Registry at `localhost:5000` |
+| `STORAGE_PATH` | `~/.local/share/k8s-volumes` | Host path for PV data |
+| `GPU_ENABLED` | `true` | See GOTCHA above — set `false` if no NVIDIA GPU |
+| `OLLAMA` | `true` | See GOTCHA above — set `false` if skipping Ollama |
+| `MONITORING` | `false` | Prometheus + Grafana |
+| `HERMES` | `false` | Hermes Agent (must be set at cluster creation time) |
+
+---
 
 ## Shared Resources
 
-### Certificate Management (cert-manager)
+### Registry
 
-The following `ClusterIssuers` are available globally:
-
-- `selfsigned-issuer`: For local development certificates.
-- `letsencrypt-prod`: For production ACME certificates (requires public DNS).
-
-Namespaces can request certificates by referencing these issuers in their `Certificate` or `Ingress` resources.
-
-### Storage Management
-
-The cluster provides a generic host-path mount at `/mnt/moor-storage` inside the nodes, which maps to `${STORAGE_PATH}` on your host (default: `~/.local/share/k8s-volumes`).
-
-**Important**: Projects are responsible for creating their own subdirectories within this path to avoid namespace collisions and ensure clean separation of data. For example, a project's Makefile should run `mkdir -p $(STORAGE_PATH)/project-name` before deploying.
-
-### Advanced Usage
-
-You can override the default cluster name or registry configuration by exporting environment variables before running `make`:
+Push images from your host:
 
 ```bash
-export ACME_EMAIL="your-email@example.com"
-export CLUSTER_NAME="custom-cluster"
-export REGISTRY_PORT="5001"
-make up
+docker push localhost:5000/my-image:tag
+```
+
+Pull from inside the cluster:
+
+```yaml
+image: localhost:5000/my-image:tag
+```
+
+### Storage
+
+Kind ships with `local-path-provisioner` as the `standard` StorageClass. PVCs using that class provision automatically from the host.
+
+For explicit host-path volumes, the cluster mounts `STORAGE_PATH` → `/mnt/k8s-volumes` inside the node. Create your own subdirectory before deploying:
+
+```bash
+mkdir -p ~/.local/share/k8s-volumes/my-project
+```
+
+### ClusterIssuers
+
+| Issuer | Use case |
+|---|---|
+| `selfsigned-issuer` | Local dev, no internet required |
+| `letsencrypt-prod` | Public domains with DNS + port forwarding |
+
+---
+
+## Optional Components
+
+### Monitoring (Prometheus + Grafana)
+
+```bash
+# Enable at cluster creation:
+make up MONITORING=true
+
+# Or add to an existing cluster:
+make monitoring
+
+# Remove:
+make monitoring-down
+```
+
+Default Grafana password: `homelab` (override with `GRAFANA_PASSWORD=...`).
+
+### Ollama (Local LLM Inference)
+
+Runs Ollama in the cluster and pulls a model at pod startup. Subsequent restarts reuse the cached model data from the PVC.
+
+```bash
+# Enable at cluster creation (CPU-only):
+make up OLLAMA=true GPU_ENABLED=false OLLAMA_GPU=false
+
+# With GPU passthrough (requires NVIDIA setup):
+make up GPU_ENABLED=true OLLAMA=true OLLAMA_GPU=true
+
+# Add to an existing cluster:
+make ollama OLLAMA_GPU=false
+
+# Remove (preserves model data on host):
+make ollama-down
+```
+
+Key variables:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OLLAMA_MODEL` | `llama3.2:3b` | Pulled at pod startup |
+| `OLLAMA_STORAGE` | `20Gi` | PVC size for model cache |
+| `OLLAMA_GPU` | `false` | Request `nvidia.com/gpu` in the pod |
+| `OLLAMA_INGRESS_HOST` | (empty) | Set a hostname to expose via Ingress; empty = ClusterIP only |
+
+In-cluster endpoint: `http://ollama.ollama.svc.cluster.local:11434`
+
+Port-forward if no Ingress:
+
+```bash
+kubectl port-forward -n ollama svc/ollama 11434:11434
+```
+
+### Hermes Agent
+
+Hermes requires its data directory to be bind-mounted into the Kind node **at cluster creation time**. You can't add it retroactively without a recreate.
+
+```bash
+# Create cluster with Hermes mount:
+make up HERMES=true GPU_ENABLED=false OLLAMA=false
+
+# Or recreate an existing cluster:
+make recreate HERMES=true GPU_ENABLED=false OLLAMA=false
+
+# Deploy Hermes onto the cluster:
+make hermes
+
+# Remove:
+make hermes-down
+```
+
+Key variables:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `HERMES_DATA_PATH` | `~/.hermes` | Host path bind-mounted into the node |
+| `HERMES_DASHBOARD` | `true` | Enables dashboard on `HERMES_DASHBOARD_PORT` |
+| `HERMES_DASHBOARD_PORT` | `9119` | |
+| `HERMES_DASHBOARD_INGRESS_HOST` | (empty) | Exposes dashboard via Ingress — only set for trusted networks, dashboard exposes API keys |
+
+Port-forward to the dashboard:
+
+```bash
+kubectl port-forward -n hermes svc/hermes-dashboard 9119:9119
+```
+
+If you want Hermes to talk to Ollama in-cluster, set in `~/.hermes/.env`:
+
+```bash
+OLLAMA_URL=http://ollama.ollama.svc.cluster.local:11434
+```
+
+---
+
+## Troubleshooting
+
+**kubectl context is broken after a Docker restart:**
+
+```bash
+make fix-context
+```
+
+**GPU preflight fails:**
+
+```bash
+make up GPU_ENABLED=false OLLAMA=false
+```
+
+**Cluster already exists but API server is unresponsive:**
+
+`make up` will detect this and delete/recreate the cluster automatically.
+
+**Hermes data not visible in pod:**
+
+The Kind node needs the bind mount from cluster creation. If you skipped `HERMES=true` at `make up` time:
+
+```bash
+# Option A: recreate the cluster
+make recreate HERMES=true
+
+# Option B: symlink into the existing storage mount
+ln -s ~/.hermes ~/.local/share/k8s-volumes/hermes
+make hermes HERMES_DATA_PATH=~/.local/share/k8s-volumes/hermes
 ```

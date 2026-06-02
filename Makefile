@@ -11,12 +11,12 @@ GRAFANA_PASSWORD ?= homelab
 # device plugin so pods can request nvidia.com/gpu resources.
 # Requires: nvidia-container-toolkit + Docker default-runtime=nvidia.
 # Changing this after cluster creation requires: make recreate GPU_ENABLED=true
-GPU_ENABLED                  ?= true
+GPU_ENABLED                  ?= false
 GPU_VENDOR                   ?= nvidia
 NVIDIA_DEVICE_PLUGIN_VERSION ?= v0.16.0
 
 # ── Ollama (local LLM inference) ─────────────────────────────────────────────
-OLLAMA             ?= true
+OLLAMA             ?= false
 OLLAMA_MODEL       ?= llama3.2:3b
 OLLAMA_NAMESPACE   ?= ollama
 OLLAMA_STORAGE     ?= 20Gi
@@ -27,6 +27,10 @@ OLLAMA_MEM_LIM     ?= 8Gi
 OLLAMA_GPU         ?= false
 OLLAMA_GPU_COUNT   ?= 1
 OLLAMA_INGRESS_HOST ?=
+
+# ── Host identity — PV files on the host will be owned by this UID/GID ───────
+HOST_UID ?= $(shell id -u)
+HOST_GID ?= $(shell id -g)
 
 # ── Hermes Agent ─────────────────────────────────────────────────────────────
 # HERMES_DATA_PATH is bind-mounted into the kind node at cluster creation time
@@ -55,6 +59,7 @@ export OLLAMA_GPU OLLAMA_GPU_COUNT OLLAMA_INGRESS_HOST
 export HERMES HERMES_IMAGE HERMES_NAMESPACE HERMES_DATA_PATH HERMES_UID HERMES_GID
 export HERMES_DASHBOARD HERMES_DASHBOARD_PORT HERMES_DASHBOARD_INGRESS_HOST
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
+export HOST_UID HOST_GID
 
 .PHONY: all up down status logs fix-context clean monitoring monitoring-down ollama ollama-down hermes hermes-down
 
@@ -114,12 +119,12 @@ status:
 	@kubectl config current-context 2>/dev/null || echo "❌ No context set"
 
 fix-context:
-	@echo "🔧 Repairing kubectl context for '${CLUSTER_NAME}'..."
-	@kind export kubeconfig --name $$(CLUSTER_NAME:-homelab)
+	@echo "🔧 Repairing kubectl context for '$(CLUSTER_NAME)'..."
+	@kind export kubeconfig --name $(CLUSTER_NAME)
 
 logs:
 	@echo "📋 Dumping Kind control-plane logs..."
-	@docker logs $$(CLUSTER_NAME:-homelab)-control-plane
+	@docker logs $(CLUSTER_NAME)-control-plane
 
 monitoring:
 	@bash scripts/monitoring-setup.sh
@@ -140,3 +145,8 @@ hermes-down:
 	@bash scripts/hermes-teardown.sh
 
 clean:
+	@echo "🧹 Removing generated data under STORAGE_PATH (models, metrics, dashboards)..."
+	@echo "   STORAGE_PATH = $(STORAGE_PATH)"
+	@read -p "   This deletes all PV data on the host. Continue? [y/N] " ans && [ "$$ans" = "y" ] || exit 0
+	@rm -rf "$(STORAGE_PATH)"
+	@echo "✅ Done."
