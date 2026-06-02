@@ -52,20 +52,34 @@ After it finishes, it prints a cluster IP. Add it to `/etc/hosts` for local name
 
 The Makefile defaults `GPU_ENABLED=true` and `OLLAMA=true`. If you don't have an NVIDIA GPU set up with `nvidia-container-toolkit` and Docker's default runtime set to `nvidia`, **`make up` will fail** at the GPU preflight check.
 
-**If you don't have a GPU:**
+**If you don't have a GPU** — set both to false in `.env` or on the command line:
 
 ```bash
 make up GPU_ENABLED=false OLLAMA=false
 ```
 
-Or just export them:
+**If you do have an NVIDIA GPU** — you need `nvidia-container-toolkit` and Docker's default runtime set to `nvidia`. One-time setup:
 
 ```bash
-export GPU_ENABLED=false
-export OLLAMA=false
-export ACME_EMAIL=you@example.com
-make up
+# Install nvidia-container-toolkit if not already done:
+# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+
+# Configure Docker:
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "/usr/bin/nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+EOF
+sudo systemctl restart docker
 ```
+
+Then `make up` will pass the GPU preflight.
 
 ---
 
