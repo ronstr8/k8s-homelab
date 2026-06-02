@@ -36,6 +36,10 @@ NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
 HERMES="${HERMES:-false}"
 HERMES_DATA_PATH="${HERMES_DATA_PATH:-${HOME}/.hermes}"
 
+# Ollama
+OLLAMA="${OLLAMA:-false}"
+OLLAMA_DATA_PATH="${OLLAMA_DATA_PATH:-${HOME}/.ollama}"
+
 echo "🔧 ${CLUSTER_NAME} Kind Setup"
 echo "======================"
 
@@ -147,6 +151,23 @@ if [[ "${HERMES}" == "true" ]]; then
   fi
 fi
 
+# Build optional Ollama data extraMount.
+# Maps OLLAMA_DATA_PATH (~/.ollama by default) into the kind node at /mnt/ollama-data
+# so the pod shares models with the host Ollama installation.
+OLLAMA_KIND_MOUNT=""
+if [[ "${OLLAMA}" == "true" ]]; then
+  mkdir -p "${OLLAMA_DATA_PATH}"
+  if [ "${SHOULD_CREATE}" = true ]; then
+    OLLAMA_KIND_MOUNT="      - hostPath: ${OLLAMA_DATA_PATH}
+        containerPath: /mnt/ollama-data"
+  else
+    echo "   ⚠️  Cluster already exists — Ollama data mount cannot be added retroactively."
+    echo "      Option A: make recreate OLLAMA=true"
+    echo "      Option B: ln -s ${OLLAMA_DATA_PATH} ${STORAGE_PATH}/ollama"
+    echo "               then: make ollama OLLAMA_DATA_PATH=${STORAGE_PATH}/ollama"
+  fi
+fi
+
 if [ "$SHOULD_CREATE" = true ]; then
   echo "☸️  Creating Kind cluster '${CLUSTER_NAME}' using image ${NODE_IMAGE}..."
   cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --image "${NODE_IMAGE}" --config=-
@@ -163,6 +184,7 @@ nodes:
         containerPath: /mnt/k8s-volumes
 ${GPU_KIND_MOUNT}
 ${HERMES_KIND_MOUNT}
+${OLLAMA_KIND_MOUNT}
     extraPortMappings:
       - containerPort: 80
         hostPort: 80

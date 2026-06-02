@@ -25,13 +25,14 @@ OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"
 GPU_ENABLED="${GPU_ENABLED:-false}"
 NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
 STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
+OLLAMA_DATA_PATH="${OLLAMA_DATA_PATH:-${HOME}/.ollama}"
 HOST_UID="${HOST_UID:-$(id -u)}"
 HOST_GID="${HOST_GID:-$(id -g)}"
 
 echo "🦙 Installing Ollama"
 echo "   model:     ${OLLAMA_MODEL}"
 echo "   namespace: ${OLLAMA_NAMESPACE}"
-echo "   storage:   ${OLLAMA_STORAGE} at ${STORAGE_PATH}/ollama"
+echo "   data:      ${OLLAMA_DATA_PATH} (shared with host Ollama)"
 echo "   resources: cpu ${OLLAMA_CPU_REQ}-${OLLAMA_CPU_LIM}, mem ${OLLAMA_MEM_REQ}-${OLLAMA_MEM_LIM}"
 [[ "${OLLAMA_GPU}" == "true" ]] && echo "   gpu:       ${OLLAMA_GPU_COUNT}x nvidia.com/gpu"
 [[ -n "${OLLAMA_INGRESS_HOST}" ]] && echo "   ingress:   http://${OLLAMA_INGRESS_HOST}"
@@ -54,8 +55,8 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
   kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/${NVIDIA_DEVICE_PLUGIN_VERSION}/deployments/static/nvidia-device-plugin.yml"
 fi
 
-# ── Host storage directory ────────────────────────────────────────────────────
-mkdir -p "${STORAGE_PATH}/ollama"
+# ── Host data directory ───────────────────────────────────────────────────────
+mkdir -p "${OLLAMA_DATA_PATH}"
 
 # ── Build conditional YAML fragments ─────────────────────────────────────────
 
@@ -114,7 +115,7 @@ spec:
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: ${STORAGE_PATH}/ollama
+    path: /mnt/ollama-data
     type: DirectoryOrCreate
   persistentVolumeReclaimPolicy: Retain
   storageClassName: ""
