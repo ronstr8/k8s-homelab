@@ -28,6 +28,10 @@ GPU_ENABLED="${GPU_ENABLED:-false}"
 GPU_VENDOR="${GPU_VENDOR:-nvidia}"
 NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
 
+# Hermes
+HERMES="${HERMES:-false}"
+HERMES_DATA_PATH="${HERMES_DATA_PATH:-${HOME}/.hermes}"
+
 echo "🔧 ${CLUSTER_NAME} Kind Setup"
 echo "======================"
 
@@ -122,6 +126,23 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
   fi
 fi
 
+# Build optional Hermes data extraMount.
+# Maps HERMES_DATA_PATH (~/.hermes) into the kind node at /mnt/hermes-data so
+# pods can mount it as a hostPath volume without leaving the k8s-volumes subtree.
+HERMES_KIND_MOUNT=""
+if [[ "${HERMES}" == "true" ]]; then
+  mkdir -p "${HERMES_DATA_PATH}"
+  if [ "${SHOULD_CREATE}" = true ]; then
+    HERMES_KIND_MOUNT="      - hostPath: ${HERMES_DATA_PATH}
+        containerPath: /mnt/hermes-data"
+  else
+    echo "   ⚠️  Cluster already exists — Hermes data mount cannot be added retroactively."
+    echo "      Option A: make recreate HERMES=true"
+    echo "      Option B: ln -s ${HERMES_DATA_PATH} ${STORAGE_PATH}/hermes"
+    echo "               then: make hermes HERMES_DATA_PATH=${STORAGE_PATH}/hermes"
+  fi
+fi
+
 if [ "$SHOULD_CREATE" = true ]; then
   echo "☸️  Creating Kind cluster '${CLUSTER_NAME}' using image ${NODE_IMAGE}..."
   cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --image "${NODE_IMAGE}" --config=-
@@ -137,6 +158,7 @@ nodes:
       - hostPath: ${STORAGE_PATH}
         containerPath: /mnt/k8s-volumes
 ${GPU_KIND_MOUNT}
+${HERMES_KIND_MOUNT}
     extraPortMappings:
       - containerPort: 80
         hostPort: 80
@@ -286,6 +308,14 @@ if [ "${OLLAMA:-false}" = "true" ]; then
   bash "$(dirname "$0")/ollama-setup.sh"
   if [[ -n "${OLLAMA_INGRESS_HOST:-}" ]]; then
     echo "   ${NODE_IP} ${OLLAMA_INGRESS_HOST}"
+  fi
+fi
+
+# ── 12. Hermes (optional) ────────────────────────────────────────────────────
+if [ "${HERMES:-false}" = "true" ]; then
+  bash "$(dirname "$0")/hermes-setup.sh"
+  if [[ -n "${HERMES_DASHBOARD_INGRESS_HOST:-}" ]]; then
+    echo "   ${NODE_IP} ${HERMES_DASHBOARD_INGRESS_HOST}"
   fi
 fi
 

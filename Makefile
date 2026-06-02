@@ -28,13 +28,35 @@ OLLAMA_GPU         ?= false
 OLLAMA_GPU_COUNT   ?= 1
 OLLAMA_INGRESS_HOST ?=
 
+# ── Hermes Agent ─────────────────────────────────────────────────────────────
+# HERMES_DATA_PATH is bind-mounted into the kind node at cluster creation time
+# (make up HERMES=true / make recreate HERMES=true). Changing it retroactively
+# requires a recreate, or: ln -s <old-path> <STORAGE_PATH>/hermes and set
+# HERMES_DATA_PATH=$(STORAGE_PATH)/hermes.
+HERMES                        ?= false
+HERMES_IMAGE                  ?= nousresearch/hermes-agent:latest
+HERMES_NAMESPACE              ?= hermes
+HERMES_DATA_PATH              ?= $(HOME)/.hermes
+HERMES_UID                    ?= $(shell id -u)
+HERMES_GID                    ?= $(shell id -g)
+HERMES_DASHBOARD              ?= true
+HERMES_DASHBOARD_PORT         ?= 9119
+HERMES_DASHBOARD_INGRESS_HOST ?=
+HERMES_CPU_REQ                ?= 500m
+HERMES_CPU_LIM                ?= 2
+HERMES_MEM_REQ                ?= 512Mi
+HERMES_MEM_LIM                ?= 2Gi
+
 export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_MODEL OLLAMA_NAMESPACE OLLAMA_STORAGE
 export OLLAMA_CPU_REQ OLLAMA_CPU_LIM OLLAMA_MEM_REQ OLLAMA_MEM_LIM
 export OLLAMA_GPU OLLAMA_GPU_COUNT OLLAMA_INGRESS_HOST
+export HERMES HERMES_IMAGE HERMES_NAMESPACE HERMES_DATA_PATH HERMES_UID HERMES_GID
+export HERMES_DASHBOARD HERMES_DASHBOARD_PORT HERMES_DASHBOARD_INGRESS_HOST
+export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 
-.PHONY: all up down status logs fix-context clean monitoring monitoring-down ollama ollama-down
+.PHONY: all up down status logs fix-context clean monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -64,6 +86,14 @@ help:
 	@echo "  OLLAMA_GPU=false                    - Request nvidia.com/gpu in the Ollama pod"
 	@echo "  OLLAMA_GPU_COUNT=1"
 	@echo "  OLLAMA_INGRESS_HOST=                - Hostname for Ingress (empty = ClusterIP only)"
+	@echo "  HERMES_IMAGE=nousresearch/hermes-agent:latest"
+	@echo "  HERMES_DATA_PATH=~/.hermes          - Host path bind-mounted into the kind node"
+	@echo "  HERMES_UID / HERMES_GID             - UID/GID for s6-overlay volume chown (default: current user)"
+	@echo "  HERMES_DASHBOARD=true               - Enable dashboard service on HERMES_DASHBOARD_PORT"
+	@echo "  HERMES_DASHBOARD_PORT=9119"
+	@echo "  HERMES_DASHBOARD_INGRESS_HOST=      - Hostname for dashboard Ingress"
+	@echo "  HERMES_CPU_REQ=500m  HERMES_CPU_LIM=2"
+	@echo "  HERMES_MEM_REQ=512Mi  HERMES_MEM_LIM=2Gi"
 
 up:
 	@bash scripts/kind-setup.sh
@@ -102,5 +132,11 @@ ollama:
 
 ollama-down:
 	@bash scripts/ollama-teardown.sh
+
+hermes:
+	@bash scripts/hermes-setup.sh
+
+hermes-down:
+	@bash scripts/hermes-teardown.sh
 
 clean:
