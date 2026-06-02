@@ -20,6 +20,12 @@ Optional add-ons: monitoring (Prometheus + Grafana), Ollama (local LLM inference
 - **kubectl** — https://kubernetes.io/docs/tasks/tools/
 - **Helm** — required for monitoring; optional otherwise
 - **An email address** — used in the Let's Encrypt ClusterIssuer
+- **inotify limits raised** — Kind + Docker chew through the default quickly; do this once:
+  ```bash
+  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+  echo fs.inotify.max_user_instances=512  | sudo tee -a /etc/sysctl.conf
+  sudo sysctl -p
+  ```
 
 ---
 
