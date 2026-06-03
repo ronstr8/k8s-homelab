@@ -230,36 +230,11 @@ if [[ -n "${LPP_NS}" ]]; then
     --for=condition=available deployment/local-path-provisioner \
     --timeout=60s
 
-  # Write the patch to a temp file — embedding shell scripts in JSON strings
-  # produces invalid \$ escape sequences; YAML handles multiline scripts cleanly.
-  _lpp_patch=$(mktemp)
-  cat > "${_lpp_patch}" <<PATCH
-data:
-  config.json: '{"nodePathMap":[{"node":"DEFAULT_PATH_FOR_NON_LISTED_NODES","paths":["/mnt/k8s-volumes"]}]}'
-  setup: |
-    #!/bin/sh
-    set -eu
-    while getopts 'm:s:p:' opt; do
-      case \$opt in
-        p) p="\$OPTARG" ;;
-      esac
-    done
-    mkdir -m 0777 -p "\${p}"
-    chown ${HOST_UID}:${HOST_GID} "\${p}"
-  teardown: |
-    #!/bin/sh
-    set -eu
-    while getopts 'm:s:p:' opt; do
-      case \$opt in
-        p) p="\$OPTARG" ;;
-      esac
-    done
-    rm -rf "\${p}"
-PATCH
-
-  kubectl patch configmap local-path-config -n "${LPP_NS}" \
-    --type=merge --patch-file="${_lpp_patch}"
-  rm -f "${_lpp_patch}"
+  # Redirect provisioner to /mnt/k8s-volumes (= STORAGE_PATH on the host).
+  # Only patch config.json — leave setup/teardown scripts at their defaults
+  # to avoid helper pod issues with custom scripts.
+  kubectl patch configmap local-path-config -n "${LPP_NS}" --type=merge \
+    --patch '{"data":{"config.json":"{\"nodePathMap\":[{\"node\":\"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\"paths\":[\"/mnt/k8s-volumes\"]}]}"}}'
 
   kubectl rollout restart deployment/local-path-provisioner -n "${LPP_NS}"
   kubectl rollout status deployment/local-path-provisioner -n "${LPP_NS}" --timeout=60s
