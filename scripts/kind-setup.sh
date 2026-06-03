@@ -290,21 +290,12 @@ kubectl wait --namespace ingress-nginx \
   --for=condition=available deployment/ingress-nginx-controller \
   --timeout=300s
 
-echo "⏳ Waiting for ingress-nginx admission webhook to be ready..."
-_webhook_ip=""
-until [[ -n "${_webhook_ip}" ]]; do
-  _webhook_ip=$(kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
-    -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
-  sleep 2
-done
-# The admission webhook service maps :443 → pod:8443. Probe 8443 directly
-# on the pod IP — port 443 on the same pod is for ingress traffic and is
-# always open, so probing it gives a false positive.
-_node=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-until docker exec "${_node}" bash -c \
-  "timeout 2 bash -c 'echo >/dev/tcp/${_webhook_ip}/8443'" 2>/dev/null; do
-  sleep 2
-done
+# Delete the nginx admission ValidatingWebhookConfiguration — it validates
+# new Ingress objects but consistently causes "connection refused" races when
+# other components (monitoring, Helm) create Ingresses shortly after install.
+# A homelab doesn't need Ingress admission validation.
+kubectl delete validatingwebhookconfiguration ingress-nginx-admission \
+  --ignore-not-found 2>/dev/null || true
 
 # ── 6. cert-manager ──────────────────────────────────────────────────
 if kubectl get deployment cert-manager -n cert-manager &>/dev/null 2>&1; then
