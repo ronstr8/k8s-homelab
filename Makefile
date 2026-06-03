@@ -66,7 +66,7 @@ HERMES_CPU_LIM                ?= 2
 HERMES_MEM_REQ                ?= 512Mi
 HERMES_MEM_LIM                ?= 2Gi
 
-export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE
+export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -78,7 +78,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down status logs fix-context clean env monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down status logs fix-context clean env hosts monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -92,6 +92,7 @@ help:
 	@echo "  make up OLLAMA=true                 - Also deploy Ollama (pulls OLLAMA_MODEL at runtime)"
 	@echo "  make down                           - Destroy the Kind cluster and registry"
 	@echo "  make recreate                       - down + up (required when changing GPU_ENABLED)"
+	@echo "  make hosts                          - Sync /etc/hosts to the current node IP (needs sudo)"
 	@echo "  make monitoring                     - Install/upgrade monitoring on existing cluster"
 	@echo "  make monitoring-down                - Remove monitoring stack"
 	@echo "  make ollama                         - Deploy/upgrade Ollama on existing cluster"
@@ -147,6 +148,9 @@ fix-context:
 logs:
 	@echo "📋 Dumping Kind control-plane logs..."
 	@docker logs $(CLUSTER_NAME)-control-plane
+
+hosts:
+	@bash scripts/update-hosts.sh
 
 monitoring:
 	@bash scripts/monitoring-setup.sh
