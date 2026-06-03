@@ -290,10 +290,12 @@ until [[ -n "${_webhook_ip}" ]]; do
     -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
   sleep 2
 done
-# Endpoint registered but TLS listener may not be up yet — probe port 443 from inside the node
+# The admission webhook service maps :443 → pod:8443. Probe 8443 directly
+# on the pod IP — port 443 on the same pod is for ingress traffic and is
+# always open, so probing it gives a false positive.
 _node=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 until docker exec "${_node}" bash -c \
-  "timeout 2 bash -c 'echo >/dev/tcp/${_webhook_ip}/443'" 2>/dev/null; do
+  "timeout 2 bash -c 'echo >/dev/tcp/${_webhook_ip}/8443'" 2>/dev/null; do
   sleep 2
 done
 
