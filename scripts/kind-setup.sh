@@ -311,8 +311,16 @@ kubectl wait --namespace ingress-nginx \
   --timeout=300s
 
 echo "⏳ Waiting for ingress-nginx admission webhook to be ready..."
-until kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
-  -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q '.'; do
+_webhook_ip=""
+until [[ -n "${_webhook_ip}" ]]; do
+  _webhook_ip=$(kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
+    -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+  sleep 2
+done
+# Endpoint registered but TLS listener may not be up yet — probe port 443 from inside the node
+_node=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+until docker exec "${_node}" bash -c \
+  "timeout 2 bash -c 'echo >/dev/tcp/${_webhook_ip}/443'" 2>/dev/null; do
   sleep 2
 done
 
