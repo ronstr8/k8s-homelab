@@ -34,6 +34,11 @@ HERMES_GID="${HERMES_GID:-$(id -g)}"
 HERMES_DASHBOARD="${HERMES_DASHBOARD:-true}"
 HERMES_DASHBOARD_PORT="${HERMES_DASHBOARD_PORT:-9119}"
 HERMES_DASHBOARD_INGRESS_HOST="${HERMES_DASHBOARD_INGRESS_HOST:-}"
+# ClusterIssuer for the dashboard TLS cert. Empty = no TLS (plain HTTP / nginx
+# fake cert). Set to selfsigned-issuer, letsencrypt-staging, or letsencrypt-prod.
+# letsencrypt-* require the host to be publicly reachable for the HTTP-01 challenge.
+HERMES_DASHBOARD_CLUSTER_ISSUER="${HERMES_DASHBOARD_CLUSTER_ISSUER:-}"
+HERMES_DASHBOARD_OAUTH_CLIENT_ID="${HERMES_DASHBOARD_OAUTH_CLIENT_ID:-}"
 HERMES_CPU_REQ="${HERMES_CPU_REQ:-500m}"
 HERMES_CPU_LIM="${HERMES_CPU_LIM:-2}"
 HERMES_MEM_REQ="${HERMES_MEM_REQ:-512Mi}"
@@ -100,9 +105,20 @@ if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
               name: dashboard"
 fi
 
-# Optional Ingress for the dashboard
+# Optional Ingress for the dashboard.
+# When HERMES_DASHBOARD_CLUSTER_ISSUER is set, add the cert-manager annotation
+# and a TLS block so cert-manager issues a cert into hermes-dashboard-tls.
 INGRESS_MANIFEST=""
 if [[ -n "${HERMES_DASHBOARD_INGRESS_HOST}" && "${HERMES_DASHBOARD}" == "true" ]]; then
+  _issuer_annotation=""
+  _tls_block=""
+  if [[ -n "${HERMES_DASHBOARD_CLUSTER_ISSUER}" ]]; then
+    _issuer_annotation="    cert-manager.io/cluster-issuer: ${HERMES_DASHBOARD_CLUSTER_ISSUER}"
+    _tls_block="  tls:
+    - hosts:
+        - ${HERMES_DASHBOARD_INGRESS_HOST}
+      secretName: hermes-dashboard-tls"
+  fi
   INGRESS_MANIFEST=$(cat <<INGRESS
 ---
 apiVersion: networking.k8s.io/v1
@@ -113,8 +129,10 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+${_issuer_annotation}
 spec:
   ingressClassName: nginx
+${_tls_block}
   rules:
     - host: ${HERMES_DASHBOARD_INGRESS_HOST}
       http:
@@ -174,6 +192,8 @@ spec:
               value: "0.0.0.0"
             - name: HERMES_DASHBOARD_PORT
               value: "${HERMES_DASHBOARD_PORT}"
+            - name: HERMES_DASHBOARD_OAUTH_CLIENT_ID
+              value: "${HERMES_DASHBOARD_OAUTH_CLIENT_ID}"
             - name: HERMES_HOME
               value: "/opt/data"
           ports:
