@@ -305,11 +305,16 @@ echo "🌐 Deploying ingress-nginx controller..."
 kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION:-controller-v1.11.3}/deploy/static/provider/kind/deploy.yaml"
 
 echo "⏳ Waiting for ingress-nginx to be ready..."
-# Wait for the deployment to exist first
 until kubectl get deployment ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1; do sleep 1; done
 kubectl wait --namespace ingress-nginx \
   --for=condition=available deployment/ingress-nginx-controller \
   --timeout=300s
+
+echo "⏳ Waiting for ingress-nginx admission webhook to be ready..."
+until kubectl get endpoints ingress-nginx-controller-admission -n ingress-nginx \
+  -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q '.'; do
+  sleep 2
+done
 
 # ── 6. cert-manager ──────────────────────────────────────────────────
 echo "🔐 Installing cert-manager..."
