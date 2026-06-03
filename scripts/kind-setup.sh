@@ -213,8 +213,6 @@ kind export kubeconfig --name "${CLUSTER_NAME}"
 # Kind ships local-path-provisioner defaulting to /var/local-path-provisioner
 # (inside the node container, not on the host). Redirect it to /mnt/k8s-volumes
 # so all dynamically provisioned PVCs land under STORAGE_PATH on the host.
-# Also embed HOST_UID/HOST_GID in the setup script so new PV directories are
-# immediately owned by the host user rather than root.
 echo "💾 Redirecting local-path-provisioner → ${STORAGE_PATH}..."
 LPP_NS=""
 for _ns in local-path-storage kube-system; do
