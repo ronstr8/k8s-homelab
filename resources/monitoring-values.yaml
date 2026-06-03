@@ -52,6 +52,18 @@ prometheus:
 
 grafana:
   # adminPassword is set via --set at install time (GRAFANA_PASSWORD env var)
+  # Recreate (not RollingUpdate) — the PVC is ReadWriteOnce, so on upgrade the
+  # new pod can't attach the volume while the old pod still holds it, and the
+  # old pod won't terminate until the new one is ready. RollingUpdate deadlocks
+  # ("progress deadline exceeded"); Recreate kills the old pod first.
+  deploymentStrategy:
+    type: Recreate
+  # The init-chown-data container chowns the data dir as root, but fails with
+  # "Permission denied" on this local-path/hostPath-backed volume. It's
+  # redundant anyway: fsGroup (472) makes the kubelet group-own the volume on
+  # mount, so grafana (runAsUser 472) can write without the chown.
+  initChownData:
+    enabled: false
   ingress:
     enabled: true
     ingressClassName: nginx
