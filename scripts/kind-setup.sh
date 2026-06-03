@@ -274,8 +274,15 @@ data:
 EOF
 
 # ── 5. Ingress Controller (nginx) ────────────────────────────────────
-echo "🌐 Deploying ingress-nginx controller..."
-kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION:-controller-v1.11.3}/deploy/static/provider/kind/deploy.yaml"
+# Only install if not already present — re-applying on an existing cluster
+# triggers a rolling restart of the controller, creating a race window where
+# the admission webhook is briefly unavailable and Helm Ingress creates fail.
+if kubectl get deployment ingress-nginx-controller -n ingress-nginx &>/dev/null 2>&1; then
+  echo "🌐 ingress-nginx already running, skipping install."
+else
+  echo "🌐 Deploying ingress-nginx controller..."
+  kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION:-controller-v1.11.3}/deploy/static/provider/kind/deploy.yaml"
+fi
 
 echo "⏳ Waiting for ingress-nginx to be ready..."
 until kubectl get deployment ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1; do sleep 1; done
@@ -300,8 +307,12 @@ until docker exec "${_node}" bash -c \
 done
 
 # ── 6. cert-manager ──────────────────────────────────────────────────
-echo "🔐 Installing cert-manager..."
-kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION:-v1.14.2}/cert-manager.yaml"
+if kubectl get deployment cert-manager -n cert-manager &>/dev/null 2>&1; then
+  echo "🔐 cert-manager already running, skipping install."
+else
+  echo "🔐 Installing cert-manager..."
+  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION:-v1.14.2}/cert-manager.yaml"
+fi
 
 echo "⏳ Waiting for cert-manager components to be ready..."
 for dep in cert-manager cert-manager-cainjector cert-manager-webhook; do
