@@ -392,9 +392,6 @@ fi
 # ── 12. Hermes (optional) ────────────────────────────────────────────────────
 if [ "${HERMES:-false}" = "true" ]; then
   bash "$(dirname "$0")/hermes-setup.sh"
-  if [[ -n "${HERMES_DASHBOARD_INGRESS_HOST:-}" ]]; then
-    echo "   ${NODE_IP} ${HERMES_DASHBOARD_INGRESS_HOST}"
-  fi
 fi
 
 echo ""

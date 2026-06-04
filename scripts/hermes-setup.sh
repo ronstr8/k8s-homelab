@@ -1,9 +1,12 @@
 #!/bin/bash
 # Deploy Hermes Agent (gateway + dashboard) into the Kind cluster.
 #
-# The container runs `gateway run` as its main process. When HERMES_DASHBOARD=true,
-# the s6-overlay supervision tree also starts the dashboard service on
+# The container runs `gateway run` as CMD args through s6-overlay (ENTRYPOINT=/init)
+# which remaps HERMES_UID/GID then starts the dashboard service on
 # HERMES_DASHBOARD_PORT. Both share the same pod and the same data volume.
+#
+# The dashboard is ClusterIP only (port-forward access). No ingress is created —
+# the dashboard exposes API keys and must not be publicly reachable.
 #
 # IMPORTANT — data mount:
 #   HERMES_DATA_PATH (~/.hermes by default) must be bind-mounted into the kind
@@ -12,16 +15,11 @@
 #   inside the node. If the cluster already existed without that mount, see the
 #   symlink workaround printed by kind-setup.sh.
 #
-# IMPORTANT — security:
-#   The dashboard exposes API keys. HERMES_DASHBOARD_INGRESS_HOST should only be
-#   set for trusted-network hostnames. Default is ClusterIP (port-forward only).
-#
 # Variables (all have defaults; export or pass via make):
 #   HERMES_IMAGE, HERMES_NAMESPACE, HERMES_DATA_PATH
 #   HERMES_UID, HERMES_GID          -- s6-overlay remaps the internal hermes user to these
 #   HERMES_DASHBOARD                -- "true" activates the s6 dashboard service
 #   HERMES_DASHBOARD_PORT           -- dashboard listen port (default 9119)
-#   HERMES_DASHBOARD_INGRESS_HOST   -- hostname for optional nginx Ingress
 #   HERMES_CPU_REQ/LIM, HERMES_MEM_REQ/LIM
 
 set -euo pipefail
@@ -33,12 +31,9 @@ HERMES_UID="${HERMES_UID:-$(id -u)}"
 HERMES_GID="${HERMES_GID:-$(id -g)}"
 HERMES_DASHBOARD="${HERMES_DASHBOARD:-true}"
 HERMES_DASHBOARD_PORT="${HERMES_DASHBOARD_PORT:-9119}"
-HERMES_DASHBOARD_INGRESS_HOST="${HERMES_DASHBOARD_INGRESS_HOST:-}"
-# ClusterIssuer for the dashboard TLS cert. Empty = no TLS (plain HTTP / nginx
-# fake cert). Set to selfsigned-issuer, letsencrypt-staging, or letsencrypt-prod.
-# letsencrypt-* require the host to be publicly reachable for the HTTP-01 challenge.
-HERMES_DASHBOARD_CLUSTER_ISSUER="${HERMES_DASHBOARD_CLUSTER_ISSUER:-}"
 HERMES_DASHBOARD_OAUTH_CLIENT_ID="${HERMES_DASHBOARD_OAUTH_CLIENT_ID:-}"
+# Skip OAuth auth gate (no provider configured in homelab).
+HERMES_DASHBOARD_INSECURE="${HERMES_DASHBOARD_INSECURE:-true}"
 HERMES_CPU_REQ="${HERMES_CPU_REQ:-500m}"
 HERMES_CPU_LIM="${HERMES_CPU_LIM:-2}"
 HERMES_MEM_REQ="${HERMES_MEM_REQ:-512Mi}"
@@ -48,8 +43,7 @@ echo "🤖 Installing Hermes Agent"
 echo "   image:     ${HERMES_IMAGE}"
 echo "   namespace: ${HERMES_NAMESPACE}"
 echo "   data:      ${HERMES_DATA_PATH} (as UID ${HERMES_UID}:${HERMES_GID})"
-echo "   dashboard: ${HERMES_DASHBOARD} (port ${HERMES_DASHBOARD_PORT})"
-[[ -n "${HERMES_DASHBOARD_INGRESS_HOST}" ]] && echo "   ingress:   http://${HERMES_DASHBOARD_INGRESS_HOST}"
+echo "   dashboard: ${HERMES_DASHBOARD} (port ${HERMES_DASHBOARD_PORT}, ClusterIP only)"
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 if ! kubectl cluster-info &>/dev/null; then
@@ -92,7 +86,7 @@ if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
 else
   READINESS_PROBE="readinessProbe:
             exec:
-              command: [\"pgrep\", \"-f\", \"gateway run\"]
+              command: [\"pgrep\", \"-f\", \"hermes gateway run\"]
             initialDelaySeconds: 20
             periodSeconds: 15
             failureThreshold: 6"
@@ -103,49 +97,6 @@ DASHBOARD_PORT_SPEC=""
 if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
   DASHBOARD_PORT_SPEC="- containerPort: ${HERMES_DASHBOARD_PORT}
               name: dashboard"
-fi
-
-# Optional Ingress for the dashboard.
-# When HERMES_DASHBOARD_CLUSTER_ISSUER is set, add the cert-manager annotation
-# and a TLS block so cert-manager issues a cert into hermes-dashboard-tls.
-INGRESS_MANIFEST=""
-if [[ -n "${HERMES_DASHBOARD_INGRESS_HOST}" && "${HERMES_DASHBOARD}" == "true" ]]; then
-  _issuer_annotation=""
-  _tls_block=""
-  if [[ -n "${HERMES_DASHBOARD_CLUSTER_ISSUER}" ]]; then
-    _issuer_annotation="    cert-manager.io/cluster-issuer: ${HERMES_DASHBOARD_CLUSTER_ISSUER}"
-    _tls_block="  tls:
-    - hosts:
-        - ${HERMES_DASHBOARD_INGRESS_HOST}
-      secretName: hermes-dashboard-tls"
-  fi
-  INGRESS_MANIFEST=$(cat <<INGRESS
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: hermes-dashboard
-  namespace: ${HERMES_NAMESPACE}
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-${_issuer_annotation}
-spec:
-  ingressClassName: nginx
-${_tls_block}
-  rules:
-    - host: ${HERMES_DASHBOARD_INGRESS_HOST}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: hermes-dashboard
-                port:
-                  number: ${HERMES_DASHBOARD_PORT}
-INGRESS
-)
 fi
 
 # ── Apply manifests ───────────────────────────────────────────────────────────
@@ -178,9 +129,9 @@ spec:
       containers:
         - name: hermes
           image: ${HERMES_IMAGE}
-          # gateway run is the main process; s6-overlay supervises the dashboard
-          # service in the background when HERMES_DASHBOARD=true.
-          command: ["gateway", "run"]
+          # Pass gateway run as CMD args so s6-overlay (the image ENTRYPOINT)
+          # runs first for UID remapping; main-wrapper.sh routes to hermes gateway run.
+          args: ["gateway", "run"]
           env:
             - name: HERMES_UID
               value: "${HERMES_UID}"
@@ -194,6 +145,8 @@ spec:
               value: "${HERMES_DASHBOARD_PORT}"
             - name: HERMES_DASHBOARD_OAUTH_CLIENT_ID
               value: "${HERMES_DASHBOARD_OAUTH_CLIENT_ID}"
+            - name: HERMES_DASHBOARD_INSECURE
+              value: "${HERMES_DASHBOARD_INSECURE}"
             - name: HERMES_HOME
               value: "/opt/data"
           ports:
@@ -211,7 +164,7 @@ spec:
           ${READINESS_PROBE}
           livenessProbe:
             exec:
-              command: ["pgrep", "-f", "gateway run"]
+              command: ["pgrep", "-f", "hermes gateway run"]
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 3
@@ -244,16 +197,10 @@ spec:
 EOF
 fi
 
-if [[ -n "${INGRESS_MANIFEST}" ]]; then
-  echo "${INGRESS_MANIFEST}" | kubectl apply -f -
-fi
-
 echo ""
 echo "✅ Hermes Agent deployed!"
 if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
-  echo "   Dashboard port-forward: kubectl port-forward -n ${HERMES_NAMESPACE} svc/hermes-dashboard ${HERMES_DASHBOARD_PORT}:${HERMES_DASHBOARD_PORT}"
-  [[ -n "${HERMES_DASHBOARD_INGRESS_HOST}" ]] && echo "   Dashboard ingress: http://${HERMES_DASHBOARD_INGRESS_HOST}"
-  echo "   ⚠️  Dashboard exposes API keys — do not expose publicly without authentication."
+  echo "   Dashboard: kubectl port-forward -n ${HERMES_NAMESPACE} svc/hermes-dashboard ${HERMES_DASHBOARD_PORT}:${HERMES_DASHBOARD_PORT}"
 fi
 echo ""
 echo "⏳ Watch pod startup: kubectl logs -n ${HERMES_NAMESPACE} -l app=hermes -f"
