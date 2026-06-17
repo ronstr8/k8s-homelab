@@ -3,7 +3,7 @@
 # The pod pulls OLLAMA_MODEL at startup; subsequent restarts reuse the cached data.
 #
 # Variables (all have defaults; export or pass via make):
-#   OLLAMA_MODEL, OLLAMA_NAMESPACE, OLLAMA_STORAGE
+#   OLLAMA_MODEL, OLLAMA_NAMESPACE, OLLAMA_STORAGE, OLLAMA_KEEP_ALIVE
 #   OLLAMA_CPU_REQ, OLLAMA_CPU_LIM, OLLAMA_MEM_REQ, OLLAMA_MEM_LIM
 #   OLLAMA_GPU, OLLAMA_GPU_COUNT   -- request nvidia.com/gpu resource
 #   OLLAMA_INGRESS_HOST            -- empty = ClusterIP only
@@ -12,13 +12,14 @@
 
 set -euo pipefail
 
+OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-24h}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
 OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
 OLLAMA_STORAGE="${OLLAMA_STORAGE:-20Gi}"
 OLLAMA_CPU_REQ="${OLLAMA_CPU_REQ:-2}"
 OLLAMA_CPU_LIM="${OLLAMA_CPU_LIM:-4}"
-OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-4Gi}"
-OLLAMA_MEM_LIM="${OLLAMA_MEM_LIM:-8Gi}"
+OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-8Gi}"
+OLLAMA_MEM_LIM="${OLLAMA_MEM_LIM:-11Gi}"
 OLLAMA_GPU="${OLLAMA_GPU:-false}"
 OLLAMA_GPU_COUNT="${OLLAMA_GPU_COUNT:-1}"
 OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"
@@ -31,6 +32,7 @@ HOST_GID="${HOST_GID:-$(id -g)}"
 
 echo "🦙 Installing Ollama"
 echo "   model:     ${OLLAMA_MODEL}"
+echo "   keepalive: ${OLLAMA_KEEP_ALIVE}"
 echo "   namespace: ${OLLAMA_NAMESPACE}"
 echo "   data:      ${OLLAMA_DATA_PATH} (shared with host Ollama)"
 echo "   resources: cpu ${OLLAMA_CPU_REQ}-${OLLAMA_CPU_LIM}, mem ${OLLAMA_MEM_REQ}-${OLLAMA_MEM_LIM}"
@@ -192,6 +194,8 @@ spec:
               value: "0.0.0.0"
             - name: OLLAMA_MODELS
               value: "/ollama/models"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "${OLLAMA_KEEP_ALIVE}"
           ports:
             - containerPort: 11434
               name: api
