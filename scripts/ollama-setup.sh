@@ -189,7 +189,8 @@ spec:
               ollama serve &
               _pid=\$!
               echo "Waiting for Ollama server..."
-              until curl -sf http://localhost:11434/ >/dev/null 2>&1; do sleep 2; done
+              # Use the bundled ollama CLI for readiness — the image ships no curl/wget.
+              until ollama list >/dev/null 2>&1; do sleep 2; done
               echo "Pulling model: ${OLLAMA_MODEL}"
               ollama pull ${OLLAMA_MODEL}
               echo "Model ready — server running (pid \$_pid)"
