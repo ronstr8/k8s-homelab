@@ -26,7 +26,12 @@ OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"
 GPU_ENABLED="${GPU_ENABLED:-false}"
 NVIDIA_DEVICE_PLUGIN_VERSION="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.16.0}"
 STORAGE_PATH="${STORAGE_PATH:-${HOME}/.local/share/k8s-volumes}"
-OLLAMA_DATA_PATH="${OLLAMA_DATA_PATH:-${HOME}/.ollama}"
+# Ollama data lives under the shared homelab storage root (its own subdir, per
+# convention) rather than a bespoke host path. STORAGE_PATH is mounted into the
+# node at /mnt/k8s-volumes, so no dedicated kind extraMount is required.
+OLLAMA_DATA_SUBDIR="${OLLAMA_DATA_SUBDIR:-ollama}"
+OLLAMA_DATA_PATH="${STORAGE_PATH}/${OLLAMA_DATA_SUBDIR}"
+OLLAMA_NODE_PATH="/mnt/k8s-volumes/${OLLAMA_DATA_SUBDIR}"
 HOST_UID="${HOST_UID:-$(id -u)}"
 HOST_GID="${HOST_GID:-$(id -g)}"
 
@@ -34,7 +39,7 @@ echo "🦙 Installing Ollama"
 echo "   model:     ${OLLAMA_MODEL}"
 echo "   keepalive: ${OLLAMA_KEEP_ALIVE}"
 echo "   namespace: ${OLLAMA_NAMESPACE}"
-echo "   data:      ${OLLAMA_DATA_PATH} (shared with host Ollama)"
+echo "   data:      ${OLLAMA_DATA_PATH}"
 echo "   resources: cpu ${OLLAMA_CPU_REQ}-${OLLAMA_CPU_LIM}, mem ${OLLAMA_MEM_REQ}-${OLLAMA_MEM_LIM}"
 [[ "${OLLAMA_GPU}" == "true" ]] && echo "   gpu:       ${OLLAMA_GPU_COUNT}x nvidia.com/gpu"
 [[ -n "${OLLAMA_INGRESS_HOST}" ]] && echo "   ingress:   http://${OLLAMA_INGRESS_HOST}"
@@ -117,7 +122,7 @@ spec:
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: /mnt/ollama-data
+    path: ${OLLAMA_NODE_PATH}
     type: DirectoryOrCreate
   persistentVolumeReclaimPolicy: Retain
   storageClassName: ""
