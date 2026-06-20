@@ -239,7 +239,7 @@ Key variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_DATA_PATH` | `~/.ollama` | Shared with host Ollama; bind-mounted at cluster creation |
-| `OLLAMA_MODEL` | `llama3.2:3b` | Pulled at pod startup; cached on subsequent restarts |
+| `OLLAMA_MODEL` | `gemma3n:e4b` | Pulled at pod startup; cached on subsequent restarts |
 | `OLLAMA_STORAGE` | `20Gi` | PV size declared for the mount |
 | `OLLAMA_GPU` | `false` | Request `nvidia.com/gpu` in the pod |
 | `OLLAMA_INGRESS_HOST` | (empty) | Set a hostname to expose via Ingress; empty = ClusterIP only |
@@ -286,11 +286,20 @@ Port-forward to the dashboard:
 kubectl port-forward -n hermes svc/hermes-dashboard 9119:9119
 ```
 
-To connect Hermes to an in-cluster Ollama, add to `~/.hermes/.env`:
+To run Hermes against the in-cluster Ollama, point the `model` block in
+`~/.hermes/config.yaml` at Ollama's OpenAI-compatible endpoint (this file is the
+same one the pod reads — it's bind-mounted into the node, not baked into the image):
 
-```bash
-OLLAMA_URL=http://ollama.ollama.svc.cluster.local:11434
+```yaml
+model:
+  default: gemma3n:e4b
+  provider: openai
+  base_url: http://ollama.ollama.svc.cluster.local:11434/v1
+  api_key: ollama        # Ollama ignores the value; any non-empty string works
+  context_length: 32768
 ```
+
+Restart the running gateway to reload it: `kubectl rollout restart deploy/hermes -n hermes`.
 
 ---
 

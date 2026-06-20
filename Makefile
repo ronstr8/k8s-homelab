@@ -30,7 +30,7 @@ NVIDIA_DEVICE_PLUGIN_VERSION ?= v0.16.0
 # ── Ollama (local LLM inference) ─────────────────────────────────────────────
 OLLAMA             ?= false
 OLLAMA_DATA_PATH   ?= $(HOME)/.ollama
-OLLAMA_MODEL       ?= llama3.2:3b
+OLLAMA_MODEL       ?= gemma3n:e4b
 OLLAMA_NAMESPACE   ?= ollama
 OLLAMA_STORAGE     ?= 20Gi
 OLLAMA_CPU_REQ     ?= 2
@@ -102,7 +102,7 @@ help:
 	@echo "  GPU_ENABLED=true                    - Enable GPU passthrough to KinD"
 	@echo "  GPU_VENDOR=nvidia                   - GPU vendor (only 'nvidia' supported)"
 	@echo "  NVIDIA_DEVICE_PLUGIN_VERSION=v0.16.0"
-	@echo "  OLLAMA_MODEL=llama3.2:3b            - Model pulled at pod startup"
+	@echo "  OLLAMA_MODEL=gemma3n:e4b            - Model pulled at pod startup"
 	@echo "  OLLAMA_NAMESPACE=ollama"
 	@echo "  OLLAMA_STORAGE=20Gi                 - PV size for model cache"
 	@echo "  OLLAMA_CPU_REQ=2  OLLAMA_CPU_LIM=4"

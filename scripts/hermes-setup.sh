@@ -204,5 +204,7 @@ if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
 fi
 echo ""
 echo "⏳ Watch pod startup: kubectl logs -n ${HERMES_NAMESPACE} -l app=hermes -f"
-echo "💡 In-cluster Ollama: export OLLAMA_URL=http://ollama.ollama.svc.cluster.local:11434 in ~/.hermes/.env"
+echo "💡 In-cluster Ollama: set the model block in ${HERMES_DATA_PATH}/config.yaml to"
+echo "     provider: openai, base_url: http://ollama.ollama.svc.cluster.local:11434/v1, default: <model>"
+echo "     then: kubectl rollout restart deploy/hermes -n ${HERMES_NAMESPACE}"
 echo ""
