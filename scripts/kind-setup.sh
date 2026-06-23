@@ -381,9 +381,37 @@ echo "   ${NODE_IP} moor.fazigu.org"
 
 # ── 9. GPU Device Plugin (optional) ─────────────────────────────────────────
 if [[ "${GPU_ENABLED}" == "true" ]]; then
+  # The host Docker (default-runtime=nvidia) injects the driver into each kind
+  # NODE, so `nvidia-smi` works there. But pods run via the node's INTERNAL
+  # containerd, which defaults to runc — so the device plugin pod gets no driver,
+  # can't init NVML, and never advertises nvidia.com/gpu. Per node: drop in the
+  # host's nvidia container toolkit, point containerd's default runtime at it,
+  # and restart containerd so pods get GPU injection.
+  echo "🎮 Installing nvidia runtime inside kind node(s)..."
+  for _node in $(docker ps --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}" --format '{{.Names}}'); do
+    for _b in nvidia-container-runtime nvidia-container-runtime-hook nvidia-ctk nvidia-container-cli; do
+      docker cp "/usr/bin/${_b}" "${_node}:/usr/bin/${_b}" 2>/dev/null || true
+    done
+    for _l in /usr/lib/x86_64-linux-gnu/libnvidia-container*.so*; do
+      [[ -e "${_l}" ]] && docker cp "${_l}" "${_node}:${_l}" 2>/dev/null || true
+    done
+    docker exec "${_node}" ldconfig 2>/dev/null || true
+    docker exec "${_node}" nvidia-ctk runtime configure --runtime=containerd --set-as-default >/dev/null 2>&1 || true
+    docker exec "${_node}" systemctl restart containerd 2>/dev/null || true
+    echo "   ✅ ${_node}: containerd default runtime → nvidia"
+  done
+  # containerd restart bounces the control-plane static pods — wait for the API.
+  echo "⏳ Waiting for API server after containerd restart..."
+  for _ in $(seq 1 30); do kubectl get --raw='/healthz' &>/dev/null && break; sleep 2; done
+
   echo "🎮 Deploying NVIDIA device plugin (${NVIDIA_DEVICE_PLUGIN_VERSION})..."
   kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/${NVIDIA_DEVICE_PLUGIN_VERSION}/deployments/static/nvidia-device-plugin.yml"
-  echo "   ✅ nvidia.com/gpu resource will be available on GPU-equipped nodes."
+  # The vanilla plugin pod needs NVIDIA_VISIBLE_DEVICES set so the (now nvidia)
+  # node runtime injects the driver, letting it enumerate the GPU via NVML.
+  kubectl set env ds/nvidia-device-plugin-daemonset -n kube-system \
+    NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=all >/dev/null 2>&1 || true
+  kubectl rollout status ds/nvidia-device-plugin-daemonset -n kube-system --timeout=120s 2>/dev/null || true
+  echo "   ✅ nvidia.com/gpu now advertised by GPU nodes."
 fi
 
 # ── 10. Monitoring (optional) ────────────────────────────────────────────────
