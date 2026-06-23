@@ -26,12 +26,13 @@ Optional add-ons: monitoring (Prometheus + Grafana + Alertmanager), Ollama (loca
   sudo sysctl -p
   ```
 
-**If you have an NVIDIA GPU** — you need `nvidia-container-toolkit` and Docker's default runtime set to `nvidia`. One-time setup:
+**If you have an NVIDIA GPU** — you need `nvidia-container-toolkit`, Docker's default runtime set to `nvidia`, **and** the toolkit configured to honor the kind node's GPU volume-mount request. One-time setup:
 
 ```bash
 # Install nvidia-container-toolkit:
 # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
 
+# 1. Set Docker's default runtime to nvidia
 sudo tee /etc/docker/daemon.json <<'EOF'
 {
   "default-runtime": "nvidia",
@@ -43,8 +44,16 @@ sudo tee /etc/docker/daemon.json <<'EOF'
   }
 }
 EOF
+
+# 2. Let the kind node claim all GPUs via its volume-mount sentinel. Without this
+#    the node gets bare /dev/nvidia* devices but no driver/NVML, the in-cluster
+#    device plugin finds no GPUs, and GPU pods sit Pending forever.
+sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true
+
 sudo systemctl restart docker
 ```
+
+> **Snap Docker** (Ubuntu Core / `snap install docker`): the daemon config in step 1 lives at `/var/snap/docker/current/config/daemon.json`, **not** `/etc/docker/daemon.json` (snap ignores the latter), and you restart with `sudo snap restart docker`. Step 2 is host-level and unchanged. Confirm both took effect with `docker info | grep "Default Runtime"` (should print `nvidia`).
 
 ---
 
@@ -313,6 +322,16 @@ make fix-context
 ```
 
 **GPU preflight fails:**
+
+The preflight checks `nvidia-smi`, `nvidia-container-toolkit`, Docker's default runtime, and `accept-nvidia-visible-devices-as-volume-mounts`. If it stops on the last one, enable it (then recreate so the node is rebuilt under the nvidia runtime):
+
+```bash
+sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true
+sudo systemctl restart docker   # snap Docker: sudo snap restart docker
+make recreate
+```
+
+Or skip the GPU entirely:
 
 ```bash
 make up GPU_ENABLED=false OLLAMA=false
