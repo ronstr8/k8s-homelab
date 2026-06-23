@@ -79,10 +79,27 @@ nvidia-ctk runtime configure \
 echo "   ✅ default-runtime set to nvidia in ${DAEMON_CONFIG}"
 
 # ── 2. accept GPU volume-mount requests (injects driver + NVML into the node) ─
-nvidia-ctk config --in-place \
-  --set accept-nvidia-visible-devices-as-volume-mounts=true \
-  --config-file="${RT_CONFIG}"
-echo "   ✅ accept-nvidia-visible-devices-as-volume-mounts=true in ${RT_CONFIG}"
+# This is the setting the kind node's /var/run/nvidia-container-devices/all mount
+# needs. HOW we persist it differs by flavor:
+if [[ "${FLAVOR}" == "snap" ]]; then
+  # Snap Docker regenerates ${RT_CONFIG} on every start via its
+  # nvidia-container-toolkit oneshot service, so a plain file edit is wiped on the
+  # next restart. The generator instead writes whatever is in the snap setting
+  # `nvidia-support.runtime.config-override` verbatim — that survives restarts AND
+  # snap refreshes. Base the override on the snap's current generated config (to
+  # keep its CDI defaults) and append our flag.
+  _base="$(cat "${RT_CONFIG}" 2>/dev/null || true)"
+  _override="$(printf '%s\n' "${_base}" \
+    | grep -vE '^[[:space:]]*#?[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts')"
+  _override="${_override}"$'\n'"accept-nvidia-visible-devices-as-volume-mounts = true"
+  snap set docker nvidia-support.runtime.config-override="${_override}"
+  echo "   ✅ persisted volume-mount flag via 'snap set docker nvidia-support.runtime.config-override'"
+else
+  nvidia-ctk config --in-place \
+    --set accept-nvidia-visible-devices-as-volume-mounts=true \
+    --config-file="${RT_CONFIG}"
+  echo "   ✅ accept-nvidia-visible-devices-as-volume-mounts=true in ${RT_CONFIG}"
+fi
 
 # ── 3. Restart Docker so both take effect ────────────────────────────────────
 echo "   🔄 Restarting Docker (${RESTART_CMD[*]})..."
@@ -94,15 +111,21 @@ for _ in $(seq 1 15); do
   sleep 1
 done
 
-# ── Verify ───────────────────────────────────────────────────────────────────
+# ── Verify (both settings, post-restart — this is the real test) ─────────────
 _rt="$(docker info --format '{{.DefaultRuntime}}' 2>/dev/null || echo unknown)"
-if [[ "${_rt}" == "nvidia" ]]; then
+_flag_ok=false
+grep -Eq '^[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts[[:space:]]*=[[:space:]]*true' \
+  "${RT_CONFIG}" 2>/dev/null && _flag_ok=true
+
+if [[ "${_rt}" == "nvidia" && "${_flag_ok}" == "true" ]]; then
   echo ""
-  echo "✅ GPU host setup complete. Default runtime: ${_rt}"
+  echo "✅ GPU host setup complete. default-runtime=nvidia, volume-mount flag survived restart."
   echo "   Now create the cluster:  make up GPU_ENABLED=true OLLAMA_GPU=true"
 else
   echo ""
-  echo "⚠️  Docker default runtime is '${_rt}', expected 'nvidia'." >&2
-  echo "   The config was written but didn't take effect — check 'docker info'." >&2
+  echo "⚠️  Post-restart check failed: default-runtime='${_rt}' (want nvidia)," >&2
+  echo "    volume-mount flag present in ${RT_CONFIG}: ${_flag_ok} (want true)." >&2
+  [[ "${FLAVOR}" == "snap" ]] && \
+    echo "    If the flag didn't stick, inspect: sudo snap get docker nvidia-support" >&2
   exit 1
 fi
