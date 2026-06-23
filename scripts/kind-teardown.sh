@@ -36,12 +36,15 @@ else
   echo "☸️  Cluster '${CLUSTER_NAME}' not found."
 fi
 
-# ── Stop registry ──────────────────────────────────────────────────────────
-if [ "$(docker inspect -f '{{.State.Running}}' "${REGISTRY_NAME}" 2>/dev/null || true)" = 'true' ]; then
-  echo "📦 Stopping registry..."
+# ── Remove registry ─────────────────────────────────────────────────────────
+# Remove whether it's running OR exited — a Docker/daemon restart leaves the
+# container stopped, and a leftover exited container collides by name on the
+# next `make up`. Data is preserved on the host bind-mount regardless.
+if docker inspect "${REGISTRY_NAME}" &>/dev/null; then
+  echo "📦 Removing registry (data preserved on host)..."
   docker rm -f "${REGISTRY_NAME}"
 else
-  echo "📦 Registry not running."
+  echo "📦 Registry not present."
 fi
 
 echo ""
