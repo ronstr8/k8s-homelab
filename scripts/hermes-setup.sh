@@ -81,9 +81,12 @@ fi
 # Readiness probe: TCP socket on dashboard port if dashboard is enabled,
 # otherwise exec-check for the gateway process.
 if [[ "${HERMES_DASHBOARD}" == "true" ]]; then
+  # The dashboard binds loopback (the auth gate exempts loopback binds). A
+  # kubelet tcpSocket probe hits the pod IP, not loopback, so check 127.0.0.1
+  # from inside the container instead.
   READINESS_PROBE="readinessProbe:
-            tcpSocket:
-              port: ${HERMES_DASHBOARD_PORT}
+            exec:
+              command: [\"python3\", \"-c\", \"import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(s.connect_ex(('127.0.0.1', ${HERMES_DASHBOARD_PORT})))\"]
             initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 10"
