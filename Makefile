@@ -30,7 +30,8 @@ NVIDIA_DEVICE_PLUGIN_VERSION ?= v0.16.0
 # ── Ollama (local LLM inference) ─────────────────────────────────────────────
 OLLAMA             ?= false
 OLLAMA_DATA_PATH   ?= $(HOME)/.ollama
-OLLAMA_MODEL       ?= gemma3n:e4b
+OLLAMA_MODEL       ?= qwen2.5:7b-instruct-q6_K
+OLLAMA_CONTEXT_LENGTH ?= 65536
 OLLAMA_NAMESPACE   ?= ollama
 OLLAMA_STORAGE     ?= 20Gi
 OLLAMA_CPU_REQ     ?= 2
@@ -69,7 +70,7 @@ HERMES_MEM_LIM                ?= 2Gi
 export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
-export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_NAMESPACE OLLAMA_STORAGE
+export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
 export OLLAMA_CPU_REQ OLLAMA_CPU_LIM OLLAMA_MEM_REQ OLLAMA_MEM_LIM
 export OLLAMA_GPU OLLAMA_GPU_COUNT OLLAMA_INGRESS_HOST
 export HERMES HERMES_IMAGE HERMES_NAMESPACE HERMES_DATA_PATH HERMES_UID HERMES_GID
@@ -102,7 +103,8 @@ help:
 	@echo "  GPU_ENABLED=true                    - Enable GPU passthrough to KinD"
 	@echo "  GPU_VENDOR=nvidia                   - GPU vendor (only 'nvidia' supported)"
 	@echo "  NVIDIA_DEVICE_PLUGIN_VERSION=v0.16.0"
-	@echo "  OLLAMA_MODEL=gemma3n:e4b            - Model pulled at pod startup"
+	@echo "  OLLAMA_MODEL=qwen2.5:7b-instruct-q6_K - Model pulled at pod startup"
+	@echo "  OLLAMA_CONTEXT_LENGTH=65536         - Serving context window (Hermes needs >=64K)"
 	@echo "  OLLAMA_NAMESPACE=ollama"
 	@echo "  OLLAMA_STORAGE=20Gi                 - PV size for model cache"
 	@echo "  OLLAMA_CPU_REQ=2  OLLAMA_CPU_LIM=4"

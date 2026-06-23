@@ -3,7 +3,7 @@
 # The pod pulls OLLAMA_MODEL at startup; subsequent restarts reuse the cached data.
 #
 # Variables (all have defaults; export or pass via make):
-#   OLLAMA_MODEL, OLLAMA_NAMESPACE, OLLAMA_STORAGE, OLLAMA_KEEP_ALIVE
+#   OLLAMA_MODEL, OLLAMA_CONTEXT_LENGTH, OLLAMA_NAMESPACE, OLLAMA_STORAGE, OLLAMA_KEEP_ALIVE
 #   OLLAMA_CPU_REQ, OLLAMA_CPU_LIM, OLLAMA_MEM_REQ, OLLAMA_MEM_LIM
 #   OLLAMA_GPU, OLLAMA_GPU_COUNT   -- request nvidia.com/gpu resource
 #   OLLAMA_INGRESS_HOST            -- empty = ClusterIP only
@@ -13,7 +13,10 @@
 set -euo pipefail
 
 OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-24h}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3n:e4b}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:7b-instruct-q6_K}"
+# Ollama defaults num_ctx to 2048 regardless of the model's trained max; set
+# the serving context explicitly so Hermes Agent (needs >=64K) isn't truncated.
+OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-65536}"
 OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
 OLLAMA_STORAGE="${OLLAMA_STORAGE:-20Gi}"
 OLLAMA_CPU_REQ="${OLLAMA_CPU_REQ:-2}"
@@ -37,6 +40,7 @@ HOST_GID="${HOST_GID:-$(id -g)}"
 
 echo "🦙 Installing Ollama"
 echo "   model:     ${OLLAMA_MODEL}"
+echo "   context:   ${OLLAMA_CONTEXT_LENGTH}"
 echo "   keepalive: ${OLLAMA_KEEP_ALIVE}"
 echo "   namespace: ${OLLAMA_NAMESPACE}"
 echo "   data:      ${OLLAMA_DATA_PATH}"
@@ -202,6 +206,8 @@ spec:
               value: "/ollama/models"
             - name: OLLAMA_KEEP_ALIVE
               value: "${OLLAMA_KEEP_ALIVE}"
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "${OLLAMA_CONTEXT_LENGTH}"
           ports:
             - containerPort: 11434
               name: api

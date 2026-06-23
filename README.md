@@ -239,7 +239,8 @@ Key variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_DATA_PATH` | `~/.ollama` | Shared with host Ollama; bind-mounted at cluster creation |
-| `OLLAMA_MODEL` | `gemma3n:e4b` | Pulled at pod startup; cached on subsequent restarts |
+| `OLLAMA_MODEL` | `qwen2.5:7b-instruct-q6_K` | Pulled at pod startup; cached on subsequent restarts |
+| `OLLAMA_CONTEXT_LENGTH` | `65536` | Serving context window; Ollama defaults to 2048 otherwise (Hermes needs ≥64K) |
 | `OLLAMA_STORAGE` | `20Gi` | PV size declared for the mount |
 | `OLLAMA_GPU` | `false` | Request `nvidia.com/gpu` in the pod |
 | `OLLAMA_INGRESS_HOST` | (empty) | Set a hostname to expose via Ingress; empty = ClusterIP only |
@@ -292,11 +293,11 @@ same one the pod reads — it's bind-mounted into the node, not baked into the i
 
 ```yaml
 model:
-  default: gemma3n:e4b
+  default: qwen2.5:7b-instruct-q6_K
   provider: openai
   base_url: http://ollama.ollama.svc.cluster.local:11434/v1
   api_key: ollama        # Ollama ignores the value; any non-empty string works
-  context_length: 32768
+  context_length: 65536  # must match OLLAMA_CONTEXT_LENGTH; Hermes Agent needs >=64K
 ```
 
 Restart the running gateway to reload it: `kubectl rollout restart deploy/hermes -n hermes`.
