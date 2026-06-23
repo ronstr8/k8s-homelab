@@ -26,34 +26,36 @@ Optional add-ons: monitoring (Prometheus + Grafana + Alertmanager), Ollama (loca
   sudo sysctl -p
   ```
 
-**If you have an NVIDIA GPU** — you need `nvidia-container-toolkit`, Docker's default runtime set to `nvidia`, **and** the toolkit configured to honor the kind node's GPU volume-mount request. One-time setup:
+**If you have an NVIDIA GPU**, you need `nvidia-container-toolkit` installed, then run the one-time host setup:
 
 ```bash
-# Install nvidia-container-toolkit:
-# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
-
-# 1. Set Docker's default runtime to nvidia
-sudo tee /etc/docker/daemon.json <<'EOF'
-{
-  "default-runtime": "nvidia",
-  "runtimes": {
-    "nvidia": {
-      "path": "/usr/bin/nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  }
-}
-EOF
-
-# 2. Let the kind node claim all GPUs via its volume-mount sentinel. Without this
-#    the node gets bare /dev/nvidia* devices but no driver/NVML, the in-cluster
-#    device plugin finds no GPUs, and GPU pods sit Pending forever.
-sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true
-
-sudo systemctl restart docker
+make setup-gpu      # configures Docker's nvidia runtime + the volume-mount flag, then restarts Docker
 ```
 
-> **Snap Docker** (Ubuntu Core / `snap install docker`): the daemon config in step 1 lives at `/var/snap/docker/current/config/daemon.json`, **not** `/etc/docker/daemon.json` (snap ignores the latter), and you restart with `sudo snap restart docker`. Step 2 is host-level and unchanged. Confirm both took effect with `docker info | grep "Default Runtime"` (should print `nvidia`).
+That's it — `make setup-gpu` detects your Docker flavor and writes both required settings (`default-runtime=nvidia` and `accept-nvidia-visible-devices-as-volume-mounts=true`) to the right files, then restarts Docker. After it, `make up GPU_ENABLED=true OLLAMA_GPU=true` brings the GPU into the cluster.
+
+> ### ⚠️ GPU passthrough requires **native** Docker — the Docker **snap cannot do it**
+>
+> The Canonical Docker snap (`snap install docker`) reaches GPUs only through its `gpu-2404` content interface, which on a normal system is wired to **Mesa, not the NVIDIA proprietary driver**. There is no NVIDIA driver content snap to connect it to (an apt-installed driver isn't a snap), so the snap **physically cannot inject NVML/libcuda** into containers — no amount of config fixes it. The snap also regenerates its `nvidia-container-runtime` config on every restart, fighting any edits.
+>
+> If `docker info` shows `Docker Root Dir: /var/snap/docker/...`, you're on the snap. Migrate to native Docker first:
+>
+> ```bash
+> make down                      # tear down cleanly first
+> sudo snap remove --purge docker
+> # install Docker CE from the official apt repo:
+> # https://docs.docker.com/engine/install/ubuntu/
+> sudo usermod -aG docker $USER && newgrp docker
+> make setup-gpu && make up
+> ```
+>
+> Your registry images and PV data live on host bind-mounts under `STORAGE_PATH`, so they survive the migration.
+
+**How GPU reaches pods:** host Docker (default-runtime=nvidia) injects the driver into the kind *node* — but pods run via the node's internal containerd, which defaults to `runc`. `make up` handles this automatically for GPU clusters: it drops the host's nvidia toolkit into each node, sets the node's containerd default runtime to `nvidia`, and deploys the device plugin with `NVIDIA_VISIBLE_DEVICES=all` so it can advertise `nvidia.com/gpu`. Verify with:
+
+```bash
+kubectl get node <cluster>-control-plane -o jsonpath='{.status.allocatable.nvidia\.com/gpu}{"\n"}'   # 1
+```
 
 ---
 
