@@ -86,6 +86,23 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
       echo "   ✅ Docker default runtime is nvidia"
     fi
 
+    # The kind node requests all GPUs via the /var/run/nvidia-container-devices/all
+    # sentinel mount. The runtime only honors that mount — injecting the driver +
+    # NVML the in-cluster device plugin needs — when this toolkit setting is true.
+    # Without it the node gets bare /dev/nvidia* nodes but no NVML, the device
+    # plugin finds "No devices", and GPU pods sit Pending forever.
+    if ! grep -Eq '^[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts[[:space:]]*=[[:space:]]*true' \
+         /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
+      echo "   ⚠️  nvidia-container-toolkit: accept-nvidia-visible-devices-as-volume-mounts is not enabled."
+      echo "      The kind node won't get NVML, so the device plugin can't advertise nvidia.com/gpu."
+      echo "      Enable it, then restart Docker and recreate the cluster:"
+      echo "        sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true"
+      echo "        sudo snap restart docker   # or: sudo systemctl restart docker"
+      _gpu_ok=false
+    else
+      echo "   ✅ nvidia-container-toolkit volume-mount device requests enabled"
+    fi
+
     if [[ "${_gpu_ok}" == "false" ]]; then
       echo "   ❌ GPU prerequisites not met. Set GPU_ENABLED=false or fix the above."
       exit 1
