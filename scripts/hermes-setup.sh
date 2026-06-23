@@ -32,8 +32,12 @@ HERMES_GID="${HERMES_GID:-$(id -g)}"
 HERMES_DASHBOARD="${HERMES_DASHBOARD:-true}"
 HERMES_DASHBOARD_PORT="${HERMES_DASHBOARD_PORT:-9119}"
 HERMES_DASHBOARD_OAUTH_CLIENT_ID="${HERMES_DASHBOARD_OAUTH_CLIENT_ID:-}"
-# Skip OAuth auth gate (no provider configured in homelab).
-HERMES_DASHBOARD_INSECURE="${HERMES_DASHBOARD_INSECURE:-true}"
+# Dashboard is ClusterIP/port-forward only. Bind loopback: the auth gate exempts
+# loopback binds, and `kubectl port-forward` reaches the pod's 127.0.0.1. (The old
+# HERMES_DASHBOARD_INSECURE flag no longer disables the gate.)
+HERMES_DASHBOARD_HOST="${HERMES_DASHBOARD_HOST:-127.0.0.1}"
+# api_server (port 8642) refuses to start without a key, supplied via env.
+HERMES_API_SERVER_KEY="${HERMES_API_SERVER_KEY:-}"
 HERMES_CPU_REQ="${HERMES_CPU_REQ:-500m}"
 HERMES_CPU_LIM="${HERMES_CPU_LIM:-2}"
 HERMES_MEM_REQ="${HERMES_MEM_REQ:-512Mi}"
@@ -140,13 +144,13 @@ spec:
             - name: HERMES_DASHBOARD
               value: "${HERMES_DASHBOARD}"
             - name: HERMES_DASHBOARD_HOST
-              value: "0.0.0.0"
+              value: "${HERMES_DASHBOARD_HOST}"
             - name: HERMES_DASHBOARD_PORT
               value: "${HERMES_DASHBOARD_PORT}"
             - name: HERMES_DASHBOARD_OAUTH_CLIENT_ID
               value: "${HERMES_DASHBOARD_OAUTH_CLIENT_ID}"
-            - name: HERMES_DASHBOARD_INSECURE
-              value: "${HERMES_DASHBOARD_INSECURE}"
+            - name: API_SERVER_KEY
+              value: "${HERMES_API_SERVER_KEY}"
             - name: HERMES_HOME
               value: "/opt/data"
           ports:
