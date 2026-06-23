@@ -15,6 +15,11 @@ echo "========================="
 
 if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
 
+  # ── Save cert-manager TLS + ACME secrets before the cluster is destroyed ────
+  if [[ "${CERT_PERSIST:-false}" == "true" ]]; then
+    bash "$(dirname "$0")/cert-persist.sh" save || echo "⚠️  cert save failed (continuing teardown)."
+  fi
+
   # ── Graceful drain of optional namespaces ──────────────────────────────────
   if kubectl cluster-info --request-timeout=5s &>/dev/null 2>&1; then
     for ns in monitoring ollama hermes; do

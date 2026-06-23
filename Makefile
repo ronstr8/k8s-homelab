@@ -8,6 +8,9 @@ REGISTRY_PORT    ?= 5000
 STORAGE_PATH     ?= $(HOME)/.local/share/k8s-volumes
 ACME_EMAIL       ?=
 MONITORING       ?= false
+# Persist cert-manager TLS certs + ACME account keys across recreates (save on
+# down, restore on up) so a teardown doesn't force Let's Encrypt re-issuance.
+CERT_PERSIST     ?= false
 GRAFANA_PASSWORD ?= homelab
 TEARDOWN_GRACE   ?= 60
 
@@ -67,7 +70,7 @@ HERMES_CPU_LIM                ?= 2
 HERMES_MEM_REQ                ?= 512Mi
 HERMES_MEM_LIM                ?= 2Gi
 
-export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS
+export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS CERT_PERSIST CERT_BACKUP_DIR
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -79,7 +82,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down status logs fix-context clean env hosts setup-gpu monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down status logs fix-context clean env hosts setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -90,6 +93,7 @@ help:
 	@echo "  make up                             - Create the local Kind cluster and Docker registry"
 	@echo "  make up MONITORING=true             - Also install monitoring (Prometheus + Grafana)"
 	@echo "  make setup-gpu                      - One-time NVIDIA host config for GPU passthrough (needs sudo)"
+	@echo "  make certs-save / certs-restore     - Back up/restore TLS certs across recreates (auto via CERT_PERSIST)"
 	@echo "  make up GPU_ENABLED=true            - Expose host GPU to cluster + install device plugin"
 	@echo "  make up OLLAMA=true                 - Also deploy Ollama (pulls OLLAMA_MODEL at runtime)"
 	@echo "  make down                           - Destroy the Kind cluster and registry"
@@ -131,6 +135,12 @@ up:
 
 setup-gpu:
 	@bash scripts/gpu-host-setup.sh
+
+certs-save:
+	@bash scripts/cert-persist.sh save
+
+certs-restore:
+	@bash scripts/cert-persist.sh restore
 
 down:
 	@bash scripts/kind-teardown.sh

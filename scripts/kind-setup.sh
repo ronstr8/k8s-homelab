@@ -327,6 +327,12 @@ done
 echo "📜 Applying shared ClusterIssuers (Email: ${ACME_EMAIL})..."
 sed "s/^    email: .*/    email: ${ACME_EMAIL}/" resources/cluster-issuers.yaml | kubectl apply -f -
 
+# Restore previously-issued certs so cert-manager adopts them instead of
+# re-requesting from Let's Encrypt (avoids prod rate limits on every recreate).
+if [[ "${CERT_PERSIST:-false}" == "true" ]]; then
+  bash "$(dirname "$0")/cert-persist.sh" restore || echo "⚠️  cert restore failed (continuing)."
+fi
+
 # ── 7. Patch Ingress for Moor (Port 8888) ────────────────────────────
 echo "🛰️  Patching Ingress for Moor telnet (port 8888)..."
 cat <<EOF | kubectl apply -f -
