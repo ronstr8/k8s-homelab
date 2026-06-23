@@ -86,14 +86,19 @@ if [[ "${FLAVOR}" == "snap" ]]; then
   # nvidia-container-toolkit oneshot service, so a plain file edit is wiped on the
   # next restart. The generator instead writes whatever is in the snap setting
   # `nvidia-support.runtime.config-override` verbatim — that survives restarts AND
-  # snap refreshes. Base the override on the snap's current generated config (to
-  # keep its CDI defaults) and append our flag.
+  # snap refreshes. Base the override on the snap's current generated config, then:
+  #   - force mode = "legacy": the snap defaults to "cdi", but kind requests its
+  #     GPU via the /var/run/nvidia-container-devices/all volume-mount (the legacy
+  #     path). In cdi mode the runtime ignores that mount, so the node gets bare
+  #     /dev/nvidia* but no driver/NVML and the device plugin advertises nothing.
+  #   - enable accept-nvidia-visible-devices-as-volume-mounts so that mount is honored.
   _base="$(cat "${RT_CONFIG}" 2>/dev/null || true)"
   _override="$(printf '%s\n' "${_base}" \
-    | grep -vE '^[[:space:]]*#?[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts')"
+    | grep -vE '^[[:space:]]*#?[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts' \
+    | sed -E 's/^([[:space:]]*mode[[:space:]]*=[[:space:]]*)"cdi"/\1"legacy"/')"
   _override="${_override}"$'\n'"accept-nvidia-visible-devices-as-volume-mounts = true"
   snap set docker nvidia-support.runtime.config-override="${_override}"
-  echo "   ✅ persisted volume-mount flag via 'snap set docker nvidia-support.runtime.config-override'"
+  echo "   ✅ persisted runtime mode=legacy + volume-mount flag via 'snap set docker nvidia-support.runtime.config-override'"
 else
   nvidia-ctk config --in-place \
     --set accept-nvidia-visible-devices-as-volume-mounts=true \
