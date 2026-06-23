@@ -71,16 +71,20 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
       echo "   ✅ nvidia-container-toolkit found"
     fi
 
+    # Snap Docker reads its nvidia-container-runtime config from inside the snap,
+    # NOT /etc/nvidia-container-runtime/config.toml — so check the file the active
+    # runtime actually reads, or this check is a false pass.
+    _docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "")
+    if [[ "${_docker_root}" == /var/snap/docker/* ]] || snap list docker &>/dev/null; then
+      _rt_config="/var/snap/docker/current/etc/nvidia-container-runtime/config.toml"
+    else
+      _rt_config="/etc/nvidia-container-runtime/config.toml"
+    fi
+
     _docker_runtime=$(docker info --format '{{.DefaultRuntime}}' 2>/dev/null || echo "unknown")
     if [[ "${_docker_runtime}" != "nvidia" ]]; then
       echo "   ⚠️  Docker default runtime is '${_docker_runtime}', expected 'nvidia'."
-      echo "      Add to /etc/docker/daemon.json and restart Docker:"
-      echo '      {'
-      echo '        "default-runtime": "nvidia",'
-      echo '        "runtimes": {'
-      echo '          "nvidia": { "path": "/usr/bin/nvidia-container-runtime", "runtimeArgs": [] }'
-      echo '        }'
-      echo '      }'
+      echo "      Run the one-time host setup:  make setup-gpu"
       _gpu_ok=false
     else
       echo "   ✅ Docker default runtime is nvidia"
@@ -92,15 +96,10 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
     # Without it the node gets bare /dev/nvidia* nodes but no NVML, the device
     # plugin finds "No devices", and GPU pods sit Pending forever.
     if ! grep -Eq '^[[:space:]]*accept-nvidia-visible-devices-as-volume-mounts[[:space:]]*=[[:space:]]*true' \
-         /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
-      echo "   ⚠️  nvidia-container-toolkit: accept-nvidia-visible-devices-as-volume-mounts is not enabled."
-      echo "      The kind node won't get NVML, so the device plugin can't advertise nvidia.com/gpu."
-      echo "      Tear the cluster DOWN before restarting Docker — a daemon restart under"
-      echo "      a live cluster strands docker-proxy port holders (80/443/8888/5000):"
-      echo "        make down   # if a cluster/registry is already running"
-      echo "        sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true"
-      echo "        sudo snap restart docker   # or: sudo systemctl restart docker"
-      echo "        make up"
+         "${_rt_config}" 2>/dev/null; then
+      echo "   ⚠️  accept-nvidia-visible-devices-as-volume-mounts not enabled in ${_rt_config}."
+      echo "      Without it the kind node gets no NVML and the device plugin can't"
+      echo "      advertise nvidia.com/gpu. Run the one-time host setup:  make setup-gpu"
       _gpu_ok=false
     else
       echo "   ✅ nvidia-container-toolkit volume-mount device requests enabled"

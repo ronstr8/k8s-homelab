@@ -79,7 +79,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down status logs fix-context clean env hosts monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down status logs fix-context clean env hosts setup-gpu monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -89,6 +89,7 @@ help:
 	@echo "  make env                            - Copy .env.example → .env (first-time setup)"
 	@echo "  make up                             - Create the local Kind cluster and Docker registry"
 	@echo "  make up MONITORING=true             - Also install monitoring (Prometheus + Grafana)"
+	@echo "  make setup-gpu                      - One-time NVIDIA host config for GPU passthrough (needs sudo)"
 	@echo "  make up GPU_ENABLED=true            - Expose host GPU to cluster + install device plugin"
 	@echo "  make up OLLAMA=true                 - Also deploy Ollama (pulls OLLAMA_MODEL at runtime)"
 	@echo "  make down                           - Destroy the Kind cluster and registry"
@@ -127,6 +128,9 @@ env:
 
 up:
 	@bash scripts/kind-setup.sh
+
+setup-gpu:
+	@bash scripts/gpu-host-setup.sh
 
 down:
 	@bash scripts/kind-teardown.sh

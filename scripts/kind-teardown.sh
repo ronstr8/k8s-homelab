@@ -42,7 +42,12 @@ fi
 # next `make up`. Data is preserved on the host bind-mount regardless.
 if docker inspect "${REGISTRY_NAME}" &>/dev/null; then
   echo "📦 Removing registry (data preserved on host)..."
-  docker rm -f "${REGISTRY_NAME}"
+  if ! docker rm -f "${REGISTRY_NAME}"; then
+    echo "⚠️  Could not remove ${REGISTRY_NAME} (often a stale snap/AppArmor confinement"
+    echo "    state after a Docker restart). It's harmless — a Docker daemon restart"
+    echo "    reconciles it, e.g. 'make setup-gpu' or 'sudo snap restart docker'."
+    echo "    Continuing; data is preserved on the host bind-mount either way."
+  fi
 else
   echo "📦 Registry not present."
 fi
