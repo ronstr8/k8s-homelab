@@ -19,20 +19,22 @@ reachable() { kubectl cluster-info --request-timeout=5s &>/dev/null 2>&1; }
 
 save() {
   if ! reachable; then echo "🔐 cert-persist: no reachable cluster — nothing to save."; return 0; fi
-  mkdir -p "${CERT_BACKUP_DIR}"; chmod 700 "${CERT_BACKUP_DIR}"
-
   # Names of the ACME account-key Secrets referenced by the ClusterIssuers
   # (they live in the cert-manager namespace).
   local acme_names
   acme_names="$(kubectl get clusterissuer -o jsonpath='{range .items[*]}{.spec.acme.privateKeySecretRef.name}{"\n"}{end}' 2>/dev/null | sort -u | grep -v '^$' || true)"
 
-  echo "🔐 cert-persist: saving cert-manager TLS + ACME secrets to ${CERT_BACKUP_DIR}"
-  kubectl get secret -A -o json | ACME_NAMES="${acme_names}" python3 - "${CERT_BACKUP_DIR}" <<'PY'
+  # Only write if there's actually something to save. An empty save (e.g. tearing
+  # down a fresh cluster before any cert was issued) must NOT create or clobber an
+  # existing backup — python skips mkdir/write entirely when no matches are found.
+  kubectl get secret -A -o json \
+    | CERT_BACKUP_DIR="${CERT_BACKUP_DIR}" ACME_NAMES="${acme_names}" python3 - <<'PY'
 import json, os, sys
-backup = sys.argv[1]
+backup = os.environ["CERT_BACKUP_DIR"]
 acme = set(filter(None, os.environ.get("ACME_NAMES", "").splitlines()))
 data = json.load(sys.stdin)
-saved = 0
+
+matches = []
 for s in data.get("items", []):
     md = s.get("metadata", {})
     ns, name = md.get("namespace", ""), md.get("name", "")
@@ -40,8 +42,18 @@ for s in data.get("items", []):
     typ = s.get("type", "")
     is_cert = typ == "kubernetes.io/tls" and "cert-manager.io/certificate-name" in ann
     is_acme = ns == "cert-manager" and name in acme
-    if not (is_cert or is_acme):
-        continue
+    if is_cert or is_acme:
+        matches.append((s, md, ns, name, is_cert))
+
+if not matches:
+    print("🔐 cert-persist: no cert-manager certs/ACME secrets present — "
+          "nothing to save (existing backup left intact).")
+    sys.exit(0)
+
+os.makedirs(backup, exist_ok=True)
+os.chmod(backup, 0o700)
+print(f"🔐 cert-persist: saving {len(matches)} secret(s) to {backup}")
+for s, md, ns, name, is_cert in matches:
     # Strip cluster-specific / volatile fields so it re-applies into a fresh cluster.
     for k in ("resourceVersion", "uid", "creationTimestamp", "generation",
               "ownerReferences", "managedFields", "selfLink"):
@@ -52,9 +64,8 @@ for s in data.get("items", []):
     with open(fn, "w") as f:
         json.dump(s, f)
     os.chmod(fn, 0o600)
-    saved += 1
     print(f"   💾 {ns}/{name} ({'cert' if is_cert else 'acme-account'})")
-print(f"✅ cert-persist: saved {saved} secret(s)")
+print(f"✅ cert-persist: saved {len(matches)} secret(s)")
 PY
 }
 
