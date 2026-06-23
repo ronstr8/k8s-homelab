@@ -95,9 +95,12 @@ if [[ "${GPU_ENABLED}" == "true" ]]; then
          /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
       echo "   ⚠️  nvidia-container-toolkit: accept-nvidia-visible-devices-as-volume-mounts is not enabled."
       echo "      The kind node won't get NVML, so the device plugin can't advertise nvidia.com/gpu."
-      echo "      Enable it, then restart Docker and recreate the cluster:"
+      echo "      Tear the cluster DOWN before restarting Docker — a daemon restart under"
+      echo "      a live cluster strands docker-proxy port holders (80/443/8888/5000):"
+      echo "        make down   # if a cluster/registry is already running"
       echo "        sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true"
       echo "        sudo snap restart docker   # or: sudo systemctl restart docker"
+      echo "        make up"
       _gpu_ok=false
     else
       echo "   ✅ nvidia-container-toolkit volume-mount device requests enabled"

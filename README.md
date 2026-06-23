@@ -323,12 +323,19 @@ make fix-context
 
 **GPU preflight fails:**
 
-The preflight checks `nvidia-smi`, `nvidia-container-toolkit`, Docker's default runtime, and `accept-nvidia-visible-devices-as-volume-mounts`. If it stops on the last one, enable it (then recreate so the node is rebuilt under the nvidia runtime):
+The preflight checks `nvidia-smi`, `nvidia-container-toolkit`, Docker's default runtime, and `accept-nvidia-visible-devices-as-volume-mounts`. If it stops on the last one, enable it and rebuild the node under the nvidia runtime. **Order matters**: tear the cluster down _before_ restarting Docker — a daemon restart under a live cluster strands the `docker-proxy` processes holding ports 80/443/8888/5000, which then block the next `make up` with "address already in use".
 
 ```bash
+make down   # FIRST, while the daemon is healthy — nothing to orphan
 sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true
-sudo systemctl restart docker   # snap Docker: sudo snap restart docker
-make recreate
+sudo snap restart docker        # native Docker: sudo systemctl restart docker
+make up
+```
+
+If you do get stranded proxies (you restarted Docker with a cluster up), free the ports before retrying — note `fuser -k` kills *whatever* holds them, so make sure nothing else legitimately uses these ports:
+
+```bash
+sudo fuser -k 80/tcp 443/tcp 8888/tcp 5000/tcp
 ```
 
 Or skip the GPU entirely:
