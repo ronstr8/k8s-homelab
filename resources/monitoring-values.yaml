@@ -68,7 +68,7 @@ grafana:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - grafana.fazigu.org
+      - grafana.example.com
   persistence:
     enabled: true
     storageClassName: standard

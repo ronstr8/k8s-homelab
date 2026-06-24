@@ -16,13 +16,13 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-homelab}"
 
-# Default project + component hostnames. Override via HOSTS in .env.
-HOSTS="${HOSTS:-logodal.com poker.fazigu.org moor.fazigu.org}"
+# Domains your apps' ingresses serve — set HOSTS in .env (space-separated).
+HOSTS="${HOSTS:-}"
 
 # Append enabled optional-component ingress hosts if set
 [[ -n "${OLLAMA_INGRESS_HOST:-}" ]] && HOSTS="${HOSTS} ${OLLAMA_INGRESS_HOST}"
 [[ -n "${HERMES_DASHBOARD_INGRESS_HOST:-}" ]] && HOSTS="${HOSTS} ${HERMES_DASHBOARD_INGRESS_HOST}"
-[[ "${MONITORING:-false}" == "true" ]] && HOSTS="${HOSTS} grafana.fazigu.org"
+[[ "${MONITORING:-false}" == "true" ]] && HOSTS="${HOSTS} grafana.example.com"
 
 NODE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
   "${CLUSTER_NAME}-control-plane" 2>/dev/null || true)

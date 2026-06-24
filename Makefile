@@ -58,7 +58,8 @@ HOST_GID ?= $(shell id -g)
 # requires a recreate, or: ln -s <old-path> <STORAGE_PATH>/hermes and set
 # HERMES_DATA_PATH=$(STORAGE_PATH)/hermes.
 HERMES                        ?= false
-HERMES_IMAGE                  ?= nousresearch/hermes-agent:latest
+# Pinned to a tested digest for reproducibility; bump to update (or override in .env).
+HERMES_IMAGE                  ?= nousresearch/hermes-agent@sha256:dd3d1ecaf75d8820ed74775dbb77177cff8e1bab2946c42a5d91d30ae427dac4
 HERMES_NAMESPACE              ?= hermes
 HERMES_DATA_PATH              ?= $(HOME)/.hermes
 HERMES_UID                    ?= $(shell id -u)
@@ -121,7 +122,7 @@ help:
 	@echo "  OLLAMA_GPU=false                    - Request nvidia.com/gpu in the Ollama pod"
 	@echo "  OLLAMA_GPU_COUNT=1"
 	@echo "  OLLAMA_INGRESS_HOST=                - Hostname for Ingress (empty = ClusterIP only)"
-	@echo "  HERMES_IMAGE=nousresearch/hermes-agent:latest"
+	@echo "  HERMES_IMAGE=nousresearch/hermes-agent@sha256:... (pinned; override to change)"
 	@echo "  HERMES_DATA_PATH=~/.hermes          - Host path bind-mounted into the kind node"
 	@echo "  HERMES_UID / HERMES_GID             - UID/GID for s6-overlay volume chown (default: current user)"
 	@echo "  HERMES_DASHBOARD=true               - Enable dashboard service on HERMES_DASHBOARD_PORT"

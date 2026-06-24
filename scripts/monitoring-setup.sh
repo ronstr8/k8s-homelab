@@ -32,6 +32,6 @@ NODE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{
 
 echo ""
 echo "✅ Monitoring stack installed!"
-echo "   Grafana: http://grafana.fazigu.org  (admin / ${GRAFANA_PASSWORD})"
-echo "   Add to /etc/hosts:  ${NODE_IP}  grafana.fazigu.org"
+echo "   Grafana: http://grafana.example.com  (admin / ${GRAFANA_PASSWORD})"
+echo "   Add to /etc/hosts:  ${NODE_IP}  grafana.example.com"
 echo ""

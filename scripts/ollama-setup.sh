@@ -174,7 +174,7 @@ spec:
         # Ensure the models directory is owned by HOST_UID before ollama starts.
         # Necessary when the directory was previously written as root.
         - name: chown-data
-          image: busybox:stable
+          image: busybox:1.36
           command: ["chown", "-R", "${HOST_UID}:${HOST_GID}", "/ollama"]
           volumeMounts:
             - name: models
@@ -183,7 +183,7 @@ spec:
             runAsUser: 0
       containers:
         - name: ollama
-          image: ollama/ollama:latest
+          image: ollama/ollama:0.30.10
           # Start server in background, wait for it, pull the configured model,
           # then foreground the server process. On restarts the model is already
           # cached in the PVC so the pull is a fast no-op.

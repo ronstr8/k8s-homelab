@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-HERMES_IMAGE="${HERMES_IMAGE:-nousresearch/hermes-agent:latest}"
+HERMES_IMAGE="${HERMES_IMAGE:-nousresearch/hermes-agent@sha256:dd3d1ecaf75d8820ed74775dbb77177cff8e1bab2946c42a5d91d30ae427dac4}"
 HERMES_NAMESPACE="${HERMES_NAMESPACE:-hermes}"
 HERMES_DATA_PATH="${HERMES_DATA_PATH:-${HOME}/.hermes}"
 HERMES_UID="${HERMES_UID:-$(id -u)}"

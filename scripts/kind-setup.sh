@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kind cluster setup for local development (homelab)
-# Supports logodal, poker, and moor projects.
+# Provides shared cluster services (registry, ingress, TLS) for your projects.
 # 
 # Features:
 # - Local Docker registry on port 5000
@@ -409,9 +409,9 @@ echo "   Registry:  localhost:${REGISTRY_PORT}"
 echo "   Cluster IP: ${NODE_IP}"
 echo ""
 echo "Add to /etc/hosts:"
-echo "   ${NODE_IP} logodal.com"
-echo "   ${NODE_IP} poker.fazigu.org"
-echo "   ${NODE_IP} moor.fazigu.org"
+echo "   ${NODE_IP} example.com"
+echo "   ${NODE_IP} app.example.com"
+echo "   ${NODE_IP} api.example.org"
 
 # ── 9. GPU Device Plugin (optional) ─────────────────────────────────────────
 if [[ "${GPU_ENABLED}" == "true" ]]; then
@@ -451,7 +451,7 @@ fi
 # ── 10. Monitoring (optional) ────────────────────────────────────────────────
 if [ "${MONITORING:-false}" = "true" ]; then
   bash "$(dirname "$0")/monitoring-setup.sh"
-  echo "   ${NODE_IP} grafana.fazigu.org"
+  echo "   ${NODE_IP} grafana.example.com"
 fi
 
 # ── 11. Ollama (optional) ────────────────────────────────────────────────────
