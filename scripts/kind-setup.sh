@@ -333,6 +333,40 @@ if [[ "${CERT_PERSIST:-false}" == "true" ]]; then
   bash "$(dirname "$0")/cert-persist.sh" restore || echo "⚠️  cert restore failed (continuing)."
 fi
 
+# ── In-cluster DNS for ACME HTTP-01 self-check (avoid NAT hairpin) ────────────
+# The cluster's public domains resolve to the host's public IP, which cert-
+# manager's HTTP-01 self-check (and any in-cluster client) can't reach via NAT
+# loopback — so issuance stalls "pending" forever. Rewrite those domains in
+# CoreDNS to the ingress service so the self-check resolves in-cluster; Let's
+# Encrypt still validates from the public internet via the port-80 forward.
+if [[ -n "${ACME_SELFCHECK_DOMAINS:-}" ]]; then
+  echo "🔁 CoreDNS: routing [${ACME_SELFCHECK_DOMAINS}] to the ingress (ACME self-check / no hairpin)..."
+  _cm_new=$(kubectl get cm coredns -n kube-system -o json \
+    | INGRESS_FQDN="ingress-nginx-controller.ingress-nginx.svc.cluster.local" \
+      DOMAINS="${ACME_SELFCHECK_DOMAINS}" python3 -c '
+import json, os, sys
+cm = json.load(sys.stdin)
+cf = cm["data"]["Corefile"]
+fqdn = os.environ["INGRESS_FQDN"]
+add = "".join(f"    rewrite name {d} {fqdn}\n"
+              for d in os.environ["DOMAINS"].split()
+              if f"rewrite name {d} " not in cf)
+if not add:
+    sys.exit(0)
+cm["data"]["Corefile"] = cf.replace(".:53 {\n", ".:53 {\n" + add, 1)
+for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields"):
+    cm["metadata"].pop(k, None)
+print(json.dumps(cm))
+')
+  if [[ -n "${_cm_new}" ]]; then
+    echo "${_cm_new}" | kubectl apply -f - >/dev/null
+    kubectl rollout restart deployment/coredns -n kube-system >/dev/null 2>&1 || true
+    echo "   ✅ CoreDNS rewrite applied."
+  else
+    echo "   ✅ CoreDNS rewrite already present."
+  fi
+fi
+
 # ── 7. Patch Ingress for Moor (Port 8888) ────────────────────────────
 echo "🛰️  Patching Ingress for Moor telnet (port 8888)..."
 cat <<EOF | kubectl apply -f -
