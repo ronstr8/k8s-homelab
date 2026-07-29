@@ -157,6 +157,12 @@ metadata:
     app: ollama
 spec:
   replicas: 1
+  # Recreate, not RollingUpdate: the pod holds an RWO PVC and (when OLLAMA_GPU is
+  # set) the node's only nvidia.com/gpu. Under RollingUpdate the new pod waits
+  # for a GPU the old pod won't release until the new one is Ready — a rollout
+  # that deadlocks with the new pod Pending on "Insufficient nvidia.com/gpu".
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: ollama
