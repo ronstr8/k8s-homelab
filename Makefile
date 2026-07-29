@@ -17,6 +17,21 @@ CERT_PERSIST     ?= false
 GRAFANA_PASSWORD ?= homelab
 TEARDOWN_GRACE   ?= 60
 
+# ── Pause / resume — suspend the cluster for host maintenance ────────────────
+# `make pause` quiesces workloads and stops the node container without deleting
+# the cluster, so `make resume` brings everything back with Helm releases and
+# etcd intact. Use this for hardware swaps and reboots; use `make down` only
+# when you actually want the cluster gone.
+PAUSE_GRACE      ?= 120
+PAUSE_STATE_DIR  ?= $(STORAGE_PATH)/.pause-state
+# Deployments that own a database and need an uncontended window to checkpoint.
+# Drained after the rest of the app tier, before StatefulSets. "namespace/name".
+PAUSE_LAST       ?=
+# Namespaces left running through a pause — control plane and storage machinery.
+# ingress-nginx is deliberately absent: it's the traffic gate and drains first.
+PAUSE_SKIP_NAMESPACES ?= kube-system kube-public kube-node-lease local-path-storage cert-manager
+RESUME_TIMEOUT   ?= 300
+
 # ── Component versions — pin these so make recreate restores identically ─────
 CERT_MANAGER_VERSION     ?= v1.14.2
 INGRESS_NGINX_VERSION    ?= controller-v1.11.3
@@ -75,6 +90,7 @@ HERMES_MEM_REQ                ?= 512Mi
 HERMES_MEM_LIM                ?= 2Gi
 
 export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL ACME_SELFCHECK_DOMAINS MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS CERT_PERSIST CERT_BACKUP_DIR
+export PAUSE_GRACE PAUSE_STATE_DIR PAUSE_LAST PAUSE_SKIP_NAMESPACES RESUME_TIMEOUT
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -87,7 +103,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down status logs fix-context clean env hosts setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down pause resume status logs fix-context clean env hosts setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -101,6 +117,8 @@ help:
 	@echo "  make certs-save / certs-restore     - Back up/restore TLS certs across recreates (auto via CERT_PERSIST)"
 	@echo "  make up GPU_ENABLED=true            - Expose host GPU to cluster + install device plugin"
 	@echo "  make up OLLAMA=true                 - Also deploy Ollama (pulls OLLAMA_MODEL at runtime)"
+	@echo "  make pause                          - Quiesce workloads + stop the node (host maintenance)"
+	@echo "  make resume                         - Restart the node and restore workloads after a pause"
 	@echo "  make down                           - Destroy the Kind cluster and registry"
 	@echo "  make recreate                       - down + up (required when changing GPU_ENABLED)"
 	@echo "  make hosts                          - Sync /etc/hosts to the current node IP (needs sudo)"
@@ -130,6 +148,8 @@ help:
 	@echo "  HERMES_DASHBOARD_INGRESS_HOST=      - Hostname for dashboard Ingress"
 	@echo "  HERMES_CPU_REQ=500m  HERMES_CPU_LIM=2"
 	@echo "  HERMES_MEM_REQ=512Mi  HERMES_MEM_LIM=2Gi"
+	@echo "  PAUSE_LAST=ns/deploy                - Deployments drained last, before StatefulSets"
+	@echo "  PAUSE_GRACE=120                     - Per-workload drain + docker stop timeout"
 
 env:
 	@if [ -f .env ]; then echo ".env already exists — edit it directly."; \
@@ -149,6 +169,12 @@ certs-restore:
 
 down:
 	@bash scripts/kind-teardown.sh
+
+pause:
+	@bash scripts/cluster-pause.sh
+
+resume:
+	@bash scripts/cluster-resume.sh
 
 recreate: down up
 

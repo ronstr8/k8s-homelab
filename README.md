@@ -20,11 +20,12 @@ Optional, each gated behind an env flag: GPU passthrough, monitoring (Prometheus
 3. [Local access: `/etc/hosts`](#local-access-etchosts)
 4. [Going public: Let's Encrypt behind NAT](#going-public-lets-encrypt-behind-nat)
 5. [GPU passthrough](#gpu-passthrough)
-6. [Configuration reference](#configuration-reference)
-7. [Optional components](#optional-components)
-8. [Shared resources](#shared-resources)
-9. [Make targets](#make-targets)
-10. [Troubleshooting](#troubleshooting)
+6. [Host maintenance: pause / resume](#host-maintenance-pause--resume)
+7. [Configuration reference](#configuration-reference)
+8. [Optional components](#optional-components)
+9. [Shared resources](#shared-resources)
+10. [Make targets](#make-targets)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -186,6 +187,40 @@ kubectl get node homelab-control-plane -o jsonpath='{.status.allocatable.nvidia\
 
 ---
 
+## Host maintenance: pause / resume
+
+When you need the machine down — a GPU swap, a RAM upgrade, moving the box — **don't use `make down`**. Teardown deletes the Kind cluster, and deleting the cluster wipes etcd along with every Helm release installed into it. You'd be reinstalling all your projects afterwards.
+
+`make pause` suspends the cluster instead:
+
+```bash
+make pause          # quiesce workloads, stop the node container
+sudo poweroff       # ...do the hardware work...
+make resume         # start the node, restore every workload
+```
+
+**What pause does**, in order:
+
+1. Snapshots the replica count of every Deployment and StatefulSet outside `PAUSE_SKIP_NAMESPACES` to `STORAGE_PATH/.pause-state/`, along with the node IP.
+2. Scales ingress to zero first, so nothing new arrives while the tiers behind it are shutting down.
+3. Drains application Deployments.
+4. Drains each `PAUSE_LAST` Deployment on its own, waiting for its pods to fully terminate — for workloads that own a database in a Deployment rather than a StatefulSet and need an uncontended window to checkpoint on `SIGTERM`.
+5. Drains StatefulSets one at a time, waiting for each.
+6. `docker stop`s the node and registry containers.
+
+`make resume` reverses it: containers up, wait for the API server, re-verify GPU passthrough, then restore replicas datastores-first so backends are serving before ingress reopens.
+
+The node's Docker restart policy is `on-failure`, so a clean pause means the cluster stays down across a host reboot until you run `make resume` — it won't come halfway up on its own.
+
+**Two things pause does not do:**
+
+- **It doesn't back up databases.** The pause is graceful, but graceful isn't a backup, and hardware work is exactly when you want one. Dump anything irreplaceable first.
+- **It doesn't re-verify GPU hardware changes until resume.** GPU passthrough is wired into the node container at *creation* time via the `/var/run/nvidia-container-devices/all` sentinel mount. The nvidia runtime re-runs its injection hook on `docker start`, so a same-vendor card swap normally just works — `make resume` restarts the device plugin and confirms the node still advertises `nvidia.com/gpu`. If it reports that the node isn't advertising a GPU, the fix is `make recreate GPU_ENABLED=true`. Check driver support for a new card *before* you shut down: a card newer than your driver won't come back.
+
+If Docker hands the node a different IP on restart, `make resume` says so — run `make hosts` to re-point `/etc/hosts`.
+
+---
+
 ## Configuration reference
 
 Copy `.env.example` to `.env` with `make env`. Every variable can also be exported or passed on the `make` command line — **command-line args override `.env`, which overrides the built-in defaults.**
@@ -203,6 +238,10 @@ Copy `.env.example` to `.env` with `make env`. Every variable can also be export
 | `HOST_UID` / `HOST_GID` | current user | PV directories are chowned to this on creation |
 | `HOSTS` | project hostnames | Space-separated names `make hosts` writes to `/etc/hosts` |
 | `TEARDOWN_GRACE` | `60` | Seconds to drain namespaces on `make down` |
+| `PAUSE_LAST` | (empty) | Space-separated `namespace/name` Deployments drained last on `make pause`, just before StatefulSets. See [Host maintenance](#host-maintenance-pause--resume) |
+| `PAUSE_GRACE` | `120` | Seconds per workload drain and for `docker stop` on `make pause` |
+| `PAUSE_SKIP_NAMESPACES` | control-plane namespaces | Namespaces left running through a pause |
+| `RESUME_TIMEOUT` | `300` | Seconds to wait for the node and each workload on `make resume` |
 
 ### Optional components
 
@@ -364,6 +403,8 @@ mkdir -p ~/.local/share/k8s-volumes/my-project
 make env             # Copy .env.example → .env (first-time only)
 make up              # Create cluster + all enabled services (idempotent)
 make hosts           # Sync /etc/hosts to the current node IP (needs sudo)
+make pause           # Quiesce workloads + stop the node (host maintenance, reversible)
+make resume          # Restart the node and restore workloads after a pause
 make down            # Drain optional namespaces, destroy cluster + registry
 make recreate        # down then up (required when changing GPU_ENABLED / HERMES / OLLAMA)
 make setup-gpu       # One-time NVIDIA host config for GPU passthrough (needs sudo)
