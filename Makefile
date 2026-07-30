@@ -51,14 +51,16 @@ NVIDIA_DEVICE_PLUGIN_VERSION ?= v0.16.0
 # ── Ollama (local LLM inference) ─────────────────────────────────────────────
 OLLAMA             ?= false
 OLLAMA_DATA_PATH   ?= $(HOME)/.ollama
-OLLAMA_MODEL       ?= qwen2.5:7b-instruct-q6_K
-OLLAMA_CONTEXT_LENGTH ?= 65536
+OLLAMA_MODEL       ?= gemma3:12b
+# 32K, not 64K: gemma3:12b weights (~8GB) + vision tower + a 64K KV cache lands
+# around 14GB of a 16GB card. Halving the context buys back ~2GB of headroom.
+OLLAMA_CONTEXT_LENGTH ?= 32768
 OLLAMA_NAMESPACE   ?= ollama
 OLLAMA_STORAGE     ?= 20Gi
 OLLAMA_CPU_REQ     ?= 2
 OLLAMA_CPU_LIM     ?= 4
 OLLAMA_MEM_REQ     ?= 4Gi
-OLLAMA_MEM_LIM     ?= 8Gi
+OLLAMA_MEM_LIM     ?= 12Gi
 OLLAMA_GPU         ?= false
 OLLAMA_GPU_COUNT   ?= 1
 OLLAMA_INGRESS_HOST ?=
@@ -131,12 +133,12 @@ help:
 	@echo "  GPU_ENABLED=true                    - Enable GPU passthrough to KinD"
 	@echo "  GPU_VENDOR=nvidia                   - GPU vendor (only 'nvidia' supported)"
 	@echo "  NVIDIA_DEVICE_PLUGIN_VERSION=v0.16.0"
-	@echo "  OLLAMA_MODEL=qwen2.5:7b-instruct-q6_K - Model pulled at pod startup"
-	@echo "  OLLAMA_CONTEXT_LENGTH=65536         - Serving context window (Hermes needs >=64K)"
+	@echo "  OLLAMA_MODEL=gemma3:12b             - Model pulled at pod startup"
+	@echo "  OLLAMA_CONTEXT_LENGTH=32768         - Serving context window (server-wide ceiling)"
 	@echo "  OLLAMA_NAMESPACE=ollama"
 	@echo "  OLLAMA_STORAGE=20Gi                 - PV size for model cache"
 	@echo "  OLLAMA_CPU_REQ=2  OLLAMA_CPU_LIM=4"
-	@echo "  OLLAMA_MEM_REQ=4Gi  OLLAMA_MEM_LIM=8Gi"
+	@echo "  OLLAMA_MEM_REQ=4Gi  OLLAMA_MEM_LIM=12Gi"
 	@echo "  OLLAMA_GPU=false                    - Request nvidia.com/gpu in the Ollama pod"
 	@echo "  OLLAMA_GPU_COUNT=1"
 	@echo "  OLLAMA_INGRESS_HOST=                - Hostname for Ingress (empty = ClusterIP only)"

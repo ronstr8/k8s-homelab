@@ -13,16 +13,19 @@
 set -euo pipefail
 
 OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-24h}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:7b-instruct-q6_K}"
-# Ollama defaults num_ctx to 2048 regardless of the model's trained max; set
-# the serving context explicitly so Hermes Agent (needs >=64K) isn't truncated.
-OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-65536}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3:12b}"
+# Ollama defaults num_ctx to 2048 regardless of the model's trained max, so set
+# the serving context explicitly. This is a server-wide ceiling shared by every
+# client, and the KV cache it implies is allocated per loaded model -- 32K keeps
+# gemma3:12b comfortably inside a 16GB card. Raise it only if you also have the
+# VRAM; clients that need less should send a smaller per-request num_ctx.
+OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-32768}"
 OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
 OLLAMA_STORAGE="${OLLAMA_STORAGE:-20Gi}"
 OLLAMA_CPU_REQ="${OLLAMA_CPU_REQ:-2}"
 OLLAMA_CPU_LIM="${OLLAMA_CPU_LIM:-4}"
-OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-8Gi}"
-OLLAMA_MEM_LIM="${OLLAMA_MEM_LIM:-11Gi}"
+OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-4Gi}"
+OLLAMA_MEM_LIM="${OLLAMA_MEM_LIM:-12Gi}"
 OLLAMA_GPU="${OLLAMA_GPU:-false}"
 OLLAMA_GPU_COUNT="${OLLAMA_GPU_COUNT:-1}"
 OLLAMA_INGRESS_HOST="${OLLAMA_INGRESS_HOST:-}"

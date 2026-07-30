@@ -306,8 +306,8 @@ make ollama-down                                         # remove (host model da
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_DATA_PATH` | `~/.ollama` | Shared with host Ollama; bind-mounted at cluster creation |
-| `OLLAMA_MODEL` | `qwen2.5:7b-instruct-q6_K` | Pulled at pod startup; cached after |
-| `OLLAMA_CONTEXT_LENGTH` | `65536` | Serving context window (Ollama defaults to 2048; Hermes needs ≥64K) |
+| `OLLAMA_MODEL` | `gemma3:12b` | Pulled at pod startup; cached after |
+| `OLLAMA_CONTEXT_LENGTH` | `32768` | Serving context window (Ollama defaults to 2048) — see [Sizing](#sizing-the-context-window) |
 | `OLLAMA_STORAGE` | `20Gi` | PV size for the mount |
 | `OLLAMA_GPU` | `false` | Request `nvidia.com/gpu` in the pod |
 | `OLLAMA_INGRESS_HOST` | (empty) | Hostname to expose via Ingress; empty = ClusterIP only |
@@ -317,6 +317,26 @@ In-cluster endpoint: `http://ollama.ollama.svc.cluster.local:11434`. With no ing
 ```bash
 kubectl port-forward -n ollama svc/ollama 11434:11434
 ```
+
+#### Sizing the context window
+
+`OLLAMA_CONTEXT_LENGTH` is a **server-wide ceiling**, and the KV cache it implies is allocated per loaded model. It is the single easiest way to run a GPU out of VRAM, so budget it against the card rather than picking the model's advertised maximum.
+
+Worked example — the default `gemma3:12b` (Q4_K_M) on a 16GB card:
+
+| | |
+|---|---|
+| weights | ~8.1GB |
+| vision tower (SigLIP) | ~0.9GB |
+| KV cache @ 32K | ~2.2GB |
+| compute buffers | ~1GB |
+| **total** | **~12.2GB of 16.3GB** |
+
+At 64K the KV cache roughly doubles to ~4.3GB and the total lands near 14.3GB — it still fits, but a second model or a stray allocation will push layers onto the CPU and collapse throughput. Hence the 32K default.
+
+That KV figure already assumes sliding-window attention: Gemma 3 makes only every sixth layer global, so 40 of its 48 layers cap out at a 1024-token window. Ollama applies this automatically (≥0.9). Without it the same 64K cache would want ~24GB.
+
+Clients that need less should send a smaller **per-request** `num_ctx` rather than relying on the server default — logodal pins `num_ctx: 4096` for exactly this reason, since its prompts peak around 400 tokens.
 
 ### Hermes Agent
 
@@ -358,12 +378,14 @@ To run Hermes against the in-cluster Ollama, point the `model` block in `~/.herm
 
 ```yaml
 model:
-  default: qwen2.5:7b-instruct-q6_K
-  provider: openai
+  default: hermes3:8b
+  provider: openai-api
   base_url: http://ollama.ollama.svc.cluster.local:11434/v1
   api_key: ollama        # Ollama ignores the value; any non-empty string works
-  context_length: 65536  # must match OLLAMA_CONTEXT_LENGTH; Hermes needs >=64K
+  context_length: 32768  # must not exceed OLLAMA_CONTEXT_LENGTH
 ```
+
+Hermes loads its own model rather than `OLLAMA_MODEL`, but it shares the server's context ceiling — asking for more than `OLLAMA_CONTEXT_LENGTH` gets silently truncated.
 
 Reload it with `kubectl rollout restart deploy/hermes -n hermes`.
 
