@@ -21,7 +21,7 @@ OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3:12b}"
 # VRAM; clients that need less should send a smaller per-request num_ctx.
 OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-32768}"
 OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
-OLLAMA_STORAGE="${OLLAMA_STORAGE:-20Gi}"
+OLLAMA_STORAGE="${OLLAMA_STORAGE:-64Gi}"
 OLLAMA_CPU_REQ="${OLLAMA_CPU_REQ:-2}"
 OLLAMA_CPU_LIM="${OLLAMA_CPU_LIM:-4}"
 OLLAMA_MEM_REQ="${OLLAMA_MEM_REQ:-4Gi}"
@@ -109,6 +109,30 @@ spec:
                   number: 11434
 INGRESS
 )
+fi
+
+# ── Guard: the model-cache PVC can't be resized in place ─────────────────────
+# It's statically provisioned (storageClassName: ""), and Kubernetes only
+# permits resize on dynamically provisioned claims whose StorageClass allows
+# expansion. Applying a changed OLLAMA_STORAGE would fail mid-run with a
+# Forbidden error, so catch it here and say what to do about it. The capacity
+# is bookkeeping only -- a hostPath PV never enforces it -- and the model files
+# live on the host, untouched by deleting the PV/PVC pair.
+EXISTING_STORAGE=$(kubectl get pvc ollama-models -n "${OLLAMA_NAMESPACE}" \
+  -o jsonpath='{.spec.resources.requests.storage}' 2>/dev/null || true)
+if [[ -n "${EXISTING_STORAGE}" && "${EXISTING_STORAGE}" != "${OLLAMA_STORAGE}" ]]; then
+  echo "❌ OLLAMA_STORAGE is ${OLLAMA_STORAGE}, but the existing PVC requests ${EXISTING_STORAGE}."
+  echo "   A statically provisioned PVC can't be resized. Recreate the pair"
+  echo "   (your models are on the host and are not deleted):"
+  echo
+  echo "     kubectl scale deploy/ollama -n ${OLLAMA_NAMESPACE} --replicas=0"
+  echo "     kubectl wait --for=delete pod -l app=ollama -n ${OLLAMA_NAMESPACE} --timeout=120s"
+  echo "     kubectl delete pvc ollama-models -n ${OLLAMA_NAMESPACE}"
+  echo "     kubectl delete pv ollama-models-pv"
+  echo "     make ollama"
+  echo
+  echo "   Or keep the current size with: OLLAMA_STORAGE=${EXISTING_STORAGE} make ollama"
+  exit 1
 fi
 
 # ── Apply manifests ───────────────────────────────────────────────────────────

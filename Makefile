@@ -56,7 +56,7 @@ OLLAMA_MODEL       ?= gemma3:12b
 # around 14GB of a 16GB card. Halving the context buys back ~2GB of headroom.
 OLLAMA_CONTEXT_LENGTH ?= 32768
 OLLAMA_NAMESPACE   ?= ollama
-OLLAMA_STORAGE     ?= 20Gi
+OLLAMA_STORAGE     ?= 64Gi
 OLLAMA_CPU_REQ     ?= 2
 OLLAMA_CPU_LIM     ?= 4
 OLLAMA_MEM_REQ     ?= 4Gi
@@ -136,7 +136,7 @@ help:
 	@echo "  OLLAMA_MODEL=gemma3:12b             - Model pulled at pod startup"
 	@echo "  OLLAMA_CONTEXT_LENGTH=32768         - Serving context window (server-wide ceiling)"
 	@echo "  OLLAMA_NAMESPACE=ollama"
-	@echo "  OLLAMA_STORAGE=20Gi                 - PV size for model cache"
+	@echo "  OLLAMA_STORAGE=64Gi                 - PV size for model cache"
 	@echo "  OLLAMA_CPU_REQ=2  OLLAMA_CPU_LIM=4"
 	@echo "  OLLAMA_MEM_REQ=4Gi  OLLAMA_MEM_LIM=12Gi"
 	@echo "  OLLAMA_GPU=false                    - Request nvidia.com/gpu in the Ollama pod"

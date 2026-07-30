@@ -308,7 +308,7 @@ make ollama-down                                         # remove (host model da
 | `OLLAMA_DATA_PATH` | `~/.ollama` | Shared with host Ollama; bind-mounted at cluster creation |
 | `OLLAMA_MODEL` | `gemma3:12b` | Pulled at pod startup; cached after |
 | `OLLAMA_CONTEXT_LENGTH` | `32768` | Serving context window (Ollama defaults to 2048) — see [Sizing](#sizing-the-context-window) |
-| `OLLAMA_STORAGE` | `20Gi` | PV size for the mount |
+| `OLLAMA_STORAGE` | `64Gi` | PV size for the mount; see [Resizing](#resizing-the-model-cache) |
 | `OLLAMA_GPU` | `false` | Request `nvidia.com/gpu` in the pod |
 | `OLLAMA_INGRESS_HOST` | (empty) | Hostname to expose via Ingress; empty = ClusterIP only |
 
@@ -337,6 +337,30 @@ At 64K the KV cache roughly doubles to ~4.3GB and the total lands near 14.3GB �
 That KV figure already assumes sliding-window attention: Gemma 3 makes only every sixth layer global, so 40 of its 48 layers cap out at a 1024-token window. Ollama applies this automatically (≥0.9). Without it the same 64K cache would want ~24GB.
 
 Clients that need less should send a smaller **per-request** `num_ctx` rather than relying on the server default — logodal pins `num_ctx: 4096` for exactly this reason, since its prompts peak around 400 tokens.
+
+#### Resizing the model cache
+
+`OLLAMA_STORAGE` sizes a **statically provisioned** PV/PVC pair (`storageClassName: ""`). Kubernetes only allows in-place resize on *dynamically* provisioned claims backed by a StorageClass with `allowVolumeExpansion: true`, so changing `OLLAMA_STORAGE` on an existing cluster can't be applied by `make ollama` — it would fail with:
+
+```
+persistentvolumeclaims "ollama-models" is forbidden: only dynamically
+provisioned pvc can be resized and the storageclass that provisions
+the pvc must support resize
+```
+
+`make ollama` detects the mismatch up front and prints the fix rather than failing partway through. To resize, recreate the pair:
+
+```bash
+kubectl scale deploy/ollama -n ollama --replicas=0
+kubectl wait --for=delete pod -l app=ollama -n ollama --timeout=120s
+kubectl delete pvc ollama-models -n ollama
+kubectl delete pv ollama-models-pv
+make ollama
+```
+
+**Your models are not deleted.** The PV is `hostPath` with `persistentVolumeReclaimPolicy: Retain`; the files live at `STORAGE_PATH/ollama` on the host and survive the PV/PVC teardown. The pod re-binds to the same directory and finds its existing cache.
+
+Note that a hostPath PV **never enforces** its capacity — the number is bookkeeping, and the real limit is free space on the filesystem backing `STORAGE_PATH`. Keeping it honest still matters: it's what you'll read when deciding whether another model fits.
 
 ### Hermes Agent
 
