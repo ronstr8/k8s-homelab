@@ -32,6 +32,18 @@ PAUSE_LAST       ?=
 PAUSE_SKIP_NAMESPACES ?= kube-system kube-public kube-node-lease local-path-storage cert-manager
 RESUME_TIMEOUT   ?= 300
 
+# ── LAN DNS — split-horizon so other machines can reach the cluster by name ──
+# The ISP gateway offers neither DNS host entries nor NAT loopback, so LAN
+# clients resolve these names to the public WAN IP and the router refuses to
+# hairpin the traffic back inside. `make dnsmasq` answers them locally instead.
+# Distinct from `make hosts`: that points /etc/hosts at the Kind NODE IP for
+# cert-manager's in-cluster ACME self-check; this points LAN clients at the
+# HOST's LAN IP. See scripts/dnsmasq-setup.sh for why they must differ.
+DNSMASQ_LISTEN_IP ?=
+DNSMASQ_DOMAINS   ?=
+DNSMASQ_UPSTREAM  ?= 1.1.1.1 8.8.8.8
+DNSMASQ_LAN_DOMAIN ?=
+
 # ── Component versions — pin these so make recreate restores identically ─────
 CERT_MANAGER_VERSION     ?= v1.14.2
 INGRESS_NGINX_VERSION    ?= controller-v1.11.3
@@ -93,6 +105,7 @@ HERMES_MEM_LIM                ?= 2Gi
 
 export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL ACME_SELFCHECK_DOMAINS MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS CERT_PERSIST CERT_BACKUP_DIR
 export PAUSE_GRACE PAUSE_STATE_DIR PAUSE_LAST PAUSE_SKIP_NAMESPACES RESUME_TIMEOUT
+export DNSMASQ_LISTEN_IP DNSMASQ_DOMAINS DNSMASQ_UPSTREAM DNSMASQ_LAN_DOMAIN
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -105,7 +118,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down pause resume status logs fix-context clean env hosts setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down pause resume status logs fix-context clean env hosts dnsmasq dnsmasq-down setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
 
 all: up
 
@@ -124,6 +137,8 @@ help:
 	@echo "  make down                           - Destroy the Kind cluster and registry"
 	@echo "  make recreate                       - down + up (required when changing GPU_ENABLED)"
 	@echo "  make hosts                          - Sync /etc/hosts to the current node IP (needs sudo)"
+	@echo "  make dnsmasq                        - Serve LAN DNS so other machines resolve by name (needs sudo)"
+	@echo "  make dnsmasq-down                   - Stop serving LAN DNS"
 	@echo "  make monitoring                     - Install/upgrade monitoring on existing cluster"
 	@echo "  make monitoring-down                - Remove monitoring stack"
 	@echo "  make ollama                         - Deploy/upgrade Ollama on existing cluster"
@@ -152,6 +167,9 @@ help:
 	@echo "  HERMES_MEM_REQ=512Mi  HERMES_MEM_LIM=2Gi"
 	@echo "  PAUSE_LAST=ns/deploy                - Deployments drained last, before StatefulSets"
 	@echo "  PAUSE_GRACE=120                     - Per-workload drain + docker stop timeout"
+	@echo "  DNSMASQ_LISTEN_IP=                  - LAN IP to serve DNS on (empty = autodetect)"
+	@echo "  DNSMASQ_DOMAINS=                    - Names to answer locally (empty = reuse HOSTS)"
+	@echo "  DNSMASQ_UPSTREAM=1.1.1.1 8.8.8.8    - Upstream resolvers for everything else"
 
 env:
 	@if [ -f .env ]; then echo ".env already exists — edit it directly."; \
@@ -200,6 +218,12 @@ logs:
 
 hosts:
 	@bash scripts/update-hosts.sh
+
+dnsmasq:
+	@bash scripts/dnsmasq-setup.sh
+
+dnsmasq-down:
+	@bash scripts/dnsmasq-teardown.sh
 
 monitoring:
 	@bash scripts/monitoring-setup.sh

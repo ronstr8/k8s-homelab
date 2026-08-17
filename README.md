@@ -18,14 +18,15 @@ Optional, each gated behind an env flag: GPU passthrough, monitoring (Prometheus
 1. [Prerequisites](#prerequisites)
 2. [Quick start](#quick-start)
 3. [Local access: `/etc/hosts`](#local-access-etchosts)
-4. [Going public: Let's Encrypt behind NAT](#going-public-lets-encrypt-behind-nat)
-5. [GPU passthrough](#gpu-passthrough)
-6. [Host maintenance: pause / resume](#host-maintenance-pause--resume)
-7. [Configuration reference](#configuration-reference)
-8. [Optional components](#optional-components)
-9. [Shared resources](#shared-resources)
-10. [Make targets](#make-targets)
-11. [Troubleshooting](#troubleshooting)
+4. [LAN access: `make dnsmasq`](#lan-access-make-dnsmasq)
+5. [Going public: Let's Encrypt behind NAT](#going-public-lets-encrypt-behind-nat)
+6. [GPU passthrough](#gpu-passthrough)
+7. [Host maintenance: pause / resume](#host-maintenance-pause--resume)
+8. [Configuration reference](#configuration-reference)
+9. [Optional components](#optional-components)
+10. [Shared resources](#shared-resources)
+11. [Make targets](#make-targets)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -84,6 +85,66 @@ To do it by hand instead, take the node IP `make up` printed and add a line:
 ```
 <node-ip>  example.com app.example.com
 ```
+
+---
+
+## LAN access: `make dnsmasq`
+
+`make hosts` only fixes **this** machine. Every *other* device in the house — laptops, phones, tablets — resolves your ingress hostnames through real public DNS, gets your **public WAN IP**, and sends the packet to the router. Most consumer routers refuse to route that back inside to themselves, so the request dies even though the server is in the next room. This is the same [hairpin NAT](#2-the-hairpin-problem--why-acme_selfcheck_domains-exists) problem `ACME_SELFCHECK_DOMAINS` solves for cert-manager, just hitting a different audience.
+
+If your router exposes **DNS host entries** (sometimes "Local DNS", "DNS Hosts", "Address Reservation + hostname"), use those — one setting, fixes every device. Many ISP-supplied gateways (Spectrum/Sercomm, in particular) do not. When that's the case, serve DNS from the cluster host itself:
+
+```bash
+make dnsmasq        # installs + configures dnsmasq on this host (needs sudo)
+```
+
+It answers your ingress hostnames with **this host's LAN IP** and forwards everything else upstream. Names come from `HOSTS` (the same list `make hosts` uses) unless you override `DNSMASQ_DOMAINS`:
+
+```bash
+DNSMASQ_LISTEN_IP  = 192.168.1.222   # empty = autodetect from the default route
+DNSMASQ_DOMAINS    =                 # empty = reuse HOSTS
+DNSMASQ_UPSTREAM   = 1.1.1.1 8.8.8.8
+DNSMASQ_LAN_DOMAIN = lan             # keep the router authoritative for its own domain
+```
+
+### Why this points somewhere different than `make hosts`
+
+They answer with **deliberately different addresses**, because different resolvers consume them. Do not "fix" one to match the other:
+
+| | Answers with | Consumed by |
+|---|---|---|
+| `make hosts` | Kind **node** IP (`172.x`) | cert-manager's ACME self-check, running *inside* the cluster |
+| `make dnsmasq` | **Host's LAN** IP (`192.168.x`) | Other machines, which must reach the host's published ports |
+
+Point `/etc/hosts` at `127.0.0.1` and the in-cluster HTTP-01 self-check can no longer reach the ingress, so certificate issuance stalls. See `scripts/update-hosts.sh`.
+
+### Pointing clients at it
+
+If the router can't hand out a custom DNS server either, set it per-device. List a public resolver **second** so the internet still works when this host is down — you just lose the homelab names until it's back:
+
+```powershell
+# Windows (elevated); WSL2 inherits this unless wsl.conf sets generateResolvConf=false
+Set-DnsClientServerAddress -InterfaceAlias "Wi-Fi" -ServerAddresses 192.168.1.222,1.1.1.1
+```
+
+```bash
+# Linux / NetworkManager
+nmcli con mod <connection> ipv4.dns "192.168.1.222 1.1.1.1" ipv4.ignore-auto-dns yes
+```
+
+### Safety properties
+
+The generated `/etc/dnsmasq.d/homelab.conf` is deliberately narrow:
+
+- **Binds only the LAN address.** systemd-resolved keeps `127.0.0.53`/`127.0.0.54`, so the host's own resolver stack is untouched and needs no changes.
+- **Defines no `dhcp-range`.** dnsmasq cannot start answering DHCP and fight the router for it. Don't add one.
+- **Uses `no-resolv`** with explicit upstreams — forwarding to `/etc/resolv.conf` would point back at systemd-resolved and loop.
+- **Uses `no-hosts`.** dnsmasq reads `/etc/hosts` by default and prefers those entries over its own `address=` lines. Since `make hosts` deliberately maps the *same names* to the Kind node IP, omitting this makes dnsmasq serve LAN clients a `172.x` address they cannot route to. The two layers must stay independent.
+- **Leaves your DDNS hostname alone**, so it keeps resolving to the real WAN IP for off-network clients.
+
+**Reserve the host's IP on the router.** The config hardcodes it; if the address moves, dnsmasq won't start and every client pointed at it loses DNS. `make dnsmasq` notes when the address arrives via DHCP — but a router-side reservation is delivered over DHCP too and looks identical from the host, so that note is a prompt to confirm, not evidence the address is unreserved.
+
+Undo with `make dnsmasq-down` (repoint clients first).
 
 ---
 
@@ -449,6 +510,8 @@ mkdir -p ~/.local/share/k8s-volumes/my-project
 make env             # Copy .env.example → .env (first-time only)
 make up              # Create cluster + all enabled services (idempotent)
 make hosts           # Sync /etc/hosts to the current node IP (needs sudo)
+make dnsmasq         # Serve LAN DNS so other machines resolve by name (needs sudo)
+make dnsmasq-down    # Stop serving LAN DNS
 make pause           # Quiesce workloads + stop the node (host maintenance, reversible)
 make resume          # Restart the node and restore workloads after a pause
 make down            # Drain optional namespaces, destroy cluster + registry
@@ -472,6 +535,47 @@ make help            # Full variable reference
 ---
 
 ## Troubleshooting
+
+**"Everything is running but nothing is reachable" — triage before touching the cluster**
+
+When services go dark after a power cut, router reboot, or ISP event, the cluster is usually the *last* thing at fault. Resist `make recreate` — it destroys etcd and every dependent project's Helm release to fix a problem that is nearly always in the network. `make pause`/`make resume` are the reversible tools; neither helps if the cluster was healthy to begin with.
+
+Work outward from the host, and stop at the first failure:
+
+```bash
+# 1. Is the cluster actually broken? (usually: no)
+kubectl get nodes && kubectl get pods -A
+
+# 2. Does the ingress serve locally? 308 or 200 = healthy
+curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: example.com' https://127.0.0.1/
+
+# 3. Does it serve on the LAN address other machines use?
+curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: example.com' https://<host-lan-ip>/
+
+# 4. Does public DNS still point at your current WAN IP?
+dig +short @1.1.1.1 example.com ; curl -s https://api.ipify.org
+
+# 5. Is inbound actually arriving? Test from OUTSIDE the network —
+#    phone on cellular, or any external host. Testing from inside proves nothing.
+```
+
+Things that have actually caused this, in rough order of likelihood:
+
+- **DNS TTL after a WAN IP change.** The modem re-registers on power-up and the ISP hands out a different address. DDNS updates promptly, but resolvers worldwide cache the old record for the full TTL — an hour on a default 3600s record. Nothing is broken; it heals itself. Check the TTL before assuming otherwise: `dig +noall +answer @1.1.1.1 yourhost.example.com`.
+- **Hairpin NAT.** External clients work, LAN clients don't. See [LAN access](#lan-access-make-dnsmasq). Diagnostic: from the host, connect to your own **public** IP — if that times out while an external client succeeds, hairpin is off, and only name resolution needs fixing.
+- **Router config reset.** Port forwards, DHCP reservations, and admin passwords can all revert on a hard power loss. Verify the forwards *and* that they target the host's current IP.
+- **Wi-Fi power save on the host.** Symptom is asymmetric latency: the host pings the gateway in ~2ms, but inbound connections from LAN clients take 30–70ms because the NIC sleeps between beacons. Badly wrong for a machine serving a cluster:
+  ```bash
+  iwconfig <iface> | grep -i 'power management'   # want: off
+  nmcli con modify <connection> 802-11-wireless.powersave 2 && nmcli con up <connection>
+  ```
+  Check channel congestion too (`nmcli dev wifi list` — count BSSIDs sharing your channel). Wire the host if you can; it moots all of this.
+
+**Browser forces HTTPS on a plain-HTTP port and fails**
+
+The ingress sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`. That pins **every** subdomain of your domain to HTTPS in the browser for a year — and HSTS ignores port, so `http://host.example.com:8188` gets silently upgraded to `https://` and dies against any service not speaking TLS.
+
+Reach it by raw IP (`http://192.168.1.222:8188`) — HSTS is keyed to hostname, so an IP sidesteps it. Clearing the pin at `chrome://net-internals/#hsts` doesn't stick; it re-pins on the next visit to any HTTPS host in the domain. The real fix is to put the service behind the ingress with its own hostname and certificate.
 
 **kubectl context broke after a Docker restart**
 
