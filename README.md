@@ -113,10 +113,20 @@ They answer with **deliberately different addresses**, because different resolve
 
 | | Answers with | Consumed by |
 |---|---|---|
-| `make hosts` | Kind **node** IP (`172.x`) | cert-manager's ACME self-check, running *inside* the cluster |
+| `make hosts` | Kind **node** IP (`172.x`) | This host only — browsers and `curl` on the machine running the cluster |
 | `make dnsmasq` | **Host's LAN** IP (`192.168.x`) | Other machines, which must reach the host's published ports |
 
-Point `/etc/hosts` at `127.0.0.1` and the in-cluster HTTP-01 self-check can no longer reach the ingress, so certificate issuance stalls. See `scripts/update-hosts.sh`.
+The in-cluster ACME HTTP-01 self-check is *not* served by `/etc/hosts` — pods
+resolve through CoreDNS, where `ACME_SELFCHECK_DOMAINS` installs a rewrite to
+the ingress Service. See `scripts/update-hosts.sh`.
+
+**One name is special: this host's own.** If a hostname in `HOSTS` is also this
+machine's hostname, `make hosts` gives it the **LAN IP**, not the node IP.
+Handing the machine's own name to a container breaks anything that resolves the
+host by name and expects to find the host — most visibly `ssh -Y` with
+`X11UseLocalhost no`, which sets `DISPLAY=<fqdn>:10.0`; the X client then dials
+the *node* on port 6010, where sshd is not listening, and forwarding dies. The
+LAN IP serves both roles: sshd is on it, and so is the published ingress.
 
 ### Pointing clients at it
 

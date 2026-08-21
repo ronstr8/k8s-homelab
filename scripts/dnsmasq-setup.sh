@@ -14,9 +14,13 @@
 # resolvers:
 #
 #   make hosts     → /etc/hosts on THIS host  → the Kind NODE IP (172.x.x.x)
-#                    Consumed by cert-manager's ACME HTTP-01 self-check, which
-#                    runs inside the cluster and reaches the ingress via Docker's
-#                    embedded DNS. See scripts/update-hosts.sh.
+#                    Consumed by this host only: browsers and curl on the
+#                    machine running the cluster. (cert-manager's in-cluster
+#                    self-check does NOT read this file — pods resolve through
+#                    CoreDNS, where ACME_SELFCHECK_DOMAINS installs a rewrite to
+#                    the ingress Service.) One exception: a name in HOSTS that
+#                    is this host's OWN name gets the LAN IP, not the node IP —
+#                    see scripts/update-hosts.sh.
 #
 #   make dnsmasq   → dnsmasq on the LAN IP    → this host's LAN IP (192.168.x.x)
 #                    Consumed by other machines, which must arrive at the host's
@@ -145,10 +149,10 @@ echo "🛠️  Writing ${CONF}"
   echo "cache-size=1000"
   echo
   echo "# Do NOT read /etc/hosts. That file deliberately maps these same names to"
-  echo "# the Kind NODE IP (172.x) for cert-manager's in-cluster ACME self-check."
-  echo "# dnsmasq serves /etc/hosts entries in preference to the address= lines"
-  echo "# below, so without this it hands LAN clients a node IP they cannot route"
-  echo "# to. The two layers must stay independent - see the header of"
+  echo "# the Kind NODE IP (172.x), which only this host can route to. dnsmasq"
+  echo "# serves /etc/hosts entries in preference to the address= lines below, so"
+  echo "# without this it hands LAN clients a node IP they cannot reach. The two"
+  echo "# layers must stay independent - see the header of"
   echo "# scripts/dnsmasq-setup.sh."
   echo "no-hosts"
   echo
