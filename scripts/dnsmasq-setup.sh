@@ -159,6 +159,30 @@ echo "🛠️  Writing ${CONF}"
   echo "# Local overrides. In dnsmasq, address=/example.com/IP also matches"
   echo "# every subdomain of example.com."
   for d in ${DOMAINS}; do echo "address=/${d}/${LISTEN_IP}"; done
+
+  # ── This host's own short name ─────────────────────────────────────────────
+  # Other machines address the MACHINE by its short name - \\arkham for SMB,
+  # `ssh arkham` - not by FQDN. Two options above conspire to break that:
+  # domain-needed stops dnsmasq forwarding a dotless name upstream, and
+  # no-hosts stops it reading /etc/hosts. So a short name gets an authoritative
+  # NXDOMAIN, a definitive "no such host" that clients cache and stop retrying
+  # - unlike the timeout they used to get from the router, which let Windows
+  # fall through to LLMNR/NetBIOS. Only emitted when this host's own FQDN is
+  # one of the names we serve.
+  # host-record, not address=/name/, because address= would also claim every
+  # subdomain of the short name.
+  _self_fqdn=$(hostname -f 2>/dev/null)
+  _self_short=$(hostname -s 2>/dev/null)
+  if [[ -n "${_self_short}" && -n "${_self_fqdn}" && "${_self_short}" != "${_self_fqdn}" ]]; then
+    for d in ${DOMAINS}; do
+      if [[ "${d}" == "${_self_fqdn}" ]]; then
+        echo
+        echo "# This host's own short name - see scripts/dnsmasq-setup.sh."
+        echo "host-record=${_self_short},${LISTEN_IP}"
+        break
+      fi
+    done
+  fi
 } > "${CONF}"
 chmod 644 "${CONF}"
 
