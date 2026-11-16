@@ -142,6 +142,25 @@ Set-DnsClientServerAddress -InterfaceAlias "Wi-Fi" -ServerAddresses 192.168.1.22
 nmcli con mod <connection> ipv4.dns "192.168.1.222 1.1.1.1" ipv4.ignore-auto-dns yes
 ```
 
+#### Android: skip DNS, override hosts on the phone
+
+Pointing Android at this host's DNS server is unreliable. Samsung only lets you set DNS by giving the Wi-Fi network a static IP. Even then, the phone keeps the IPv6 DNS server the router announces, and it will happily resolve through that one and get the public IP. (On the Spectrum gateway, the "DNS" setting in the MySpectrum app doesn't reach clients either: DHCP still hands out `192.168.1.1`, and its IPv4 and IPv6 resolvers both return the WAN IP.)
+
+What works without root is an app that overrides hosts on the phone through a local VPN. [Personal DNSfilter](https://www.zenz-solutions.de/personaldnsfilter-wp/) is open source and on the Play Store:
+
+1. Add the ingress names to its custom hosts entries, all pointing at the host's LAN IP:
+   ```
+   192.168.1.222 logodal.com
+   192.168.1.222 www.logodal.com
+   192.168.1.222 wordwank.com
+   192.168.1.222 www.wordwank.com
+   ```
+2. Enable it and accept the VPN prompt. Only DNS lookups go through it; other traffic is not tunnelled anywhere.
+3. Leave the Wi-Fi network on DHCP. You don't need a static IP or DNS.
+4. Keep Android from killing it. Set the app's battery usage to **Unrestricted** (on Samsung, also remove it from Sleeping apps), and turn on **Always-on VPN** for it under Settings → Connections → More connection settings → VPN → gear. Otherwise it quietly stops after a while and the names go back to the public IP.
+
+**The entries apply on every network.** On cellular or another Wi-Fi, these names resolve to a `192.168.x` address that isn't there, so turn the filter off when you leave the house; its quick-settings tile makes that one tap. The real fix is a router that hands out this host as the DNS server for everything on the LAN.
+
 ### Safety properties
 
 The generated `/etc/dnsmasq.d/homelab.conf` is deliberately narrow:
