@@ -30,6 +30,23 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   --timeout 10m \
   --wait
 
+echo "📈 Enabling ingress-nginx metrics..."
+bash "$(dirname "$0")/ingress-metrics-setup.sh"
+
+# Each resources/dashboards/*.json becomes a ConfigMap the Grafana sidecar
+# loads into the Homelab folder. Server-side apply: dashboards outgrow the
+# 256KB last-applied annotation client-side apply would add.
+echo "🖼️  Loading Grafana dashboards..."
+for f in "$(dirname "$0")"/../resources/dashboards/*.json; do
+  name="dashboard-$(basename "${f}" .json)"
+  kubectl create configmap "${name}" -n monitoring --from-file="$(basename "${f}")=${f}" \
+      --dry-run=client -o yaml \
+    | kubectl label --local -f - grafana_dashboard=1 -o yaml \
+    | kubectl annotate --local -f - grafana_folder=Homelab -o yaml \
+    | kubectl apply --server-side --force-conflicts -f - >/dev/null
+  echo "   ${name}"
+done
+
 NODE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CLUSTER_NAME:-homelab}-control-plane" 2>/dev/null || echo "<node-ip>")
 
 echo ""

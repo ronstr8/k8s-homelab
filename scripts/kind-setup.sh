@@ -384,11 +384,15 @@ data:
   "8888": "moor/moor-telnet-host:8888"
 EOF
 
-# Patch the controller to pick up the tcp-services configmap
-kubectl patch deployment ingress-nginx-controller \
-  -n ingress-nginx \
-  --type='json' \
-  -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--tcp-services-configmap=ingress-nginx/tcp-services"}]' 2>/dev/null || true
+# Patch the controller to pick up the tcp-services configmap. Only when absent:
+# a JSON-patch "add" appends a duplicate and restarts the controller every run.
+if ! kubectl get deployment ingress-nginx-controller -n ingress-nginx \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q -- '--tcp-services-configmap='; then
+  kubectl patch deployment ingress-nginx-controller \
+    -n ingress-nginx \
+    --type='json' \
+    -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--tcp-services-configmap=ingress-nginx/tcp-services"}]'
+fi
 
 # Expose port 8888 on the controller pod
 kubectl patch deployment ingress-nginx-controller \

@@ -1,0 +1,37 @@
+# Scrape target for ingress-nginx's metrics (enabled by ingress-metrics-setup.sh).
+# Its own Service so the metrics port never joins the controller Service that
+# fronts the ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller-metrics
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: controller-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+  ports:
+    - name: metrics
+      port: 10254
+      targetPort: metrics
+---
+# Lives in monitoring so `make monitoring-down` removes it with the namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ingress-nginx
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [ingress-nginx]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller-metrics
+  endpoints:
+    - port: metrics
+      interval: 30s

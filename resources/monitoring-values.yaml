@@ -33,6 +33,12 @@ alertmanager:
 
 prometheus:
   prometheusSpec:
+    # Scrape every ServiceMonitor/PodMonitor/rule in the cluster, not just ones
+    # labelled with this release — the dependent projects ship their own.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
     retention: 7d
     resources:
       requests:
@@ -64,6 +70,17 @@ grafana:
   # mount, so grafana (runAsUser 472) can write without the chown.
   initChownData:
     enabled: false
+  # Dashboards and datasources come from labelled ConfigMaps/Secrets in any
+  # namespace, so each project ships its own with its Helm chart. A
+  # grafana_folder annotation on a dashboard ConfigMap picks its folder.
+  sidecar:
+    dashboards:
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      searchNamespace: ALL
   ingress:
     enabled: true
     ingressClassName: nginx

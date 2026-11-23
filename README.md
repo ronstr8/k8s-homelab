@@ -382,6 +382,10 @@ make monitoring             # add to an existing cluster
 make monitoring-down        # remove
 ```
 
+It also turns on ingress-nginx's metrics (one controller restart, which drops open telnet sessions) and loads the dashboards in `resources/dashboards/` into Grafana's **Homelab** folder, starting with *Ingress traffic by site*: requests, errors, latency and bandwidth for every hostname the ingress serves.
+
+Prometheus scrapes every ServiceMonitor/PodMonitor in the cluster, and Grafana loads any ConfigMap labelled `grafana_dashboard: "1"` (folder from a `grafana_folder` annotation) and any datasource labelled `grafana_datasource: "1"`, from any namespace — so dependent projects ship their own monitoring with their Helm charts.
+
 Grafana is served at `GRAFANA_INGRESS_HOST` (placeholder `grafana.example.com` if unset; `make hosts` and `make dnsmasq` pick it up). Default Grafana password is `homelab` — override with `GRAFANA_PASSWORD` (the `.env.example` ships `changeme`; set your own). Alertmanager starts with a null receiver; for email alerts, edit the commented block in `resources/monitoring-values.yaml`. After install, pin `PROMETHEUS_CHART_VERSION` (see [version pinning](#component-version-pinning)).
 
 ### Ollama (local LLM inference)
