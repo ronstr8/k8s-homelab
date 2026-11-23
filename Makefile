@@ -44,6 +44,15 @@ DNSMASQ_DOMAINS   ?=
 DNSMASQ_UPSTREAM  ?= 1.1.1.1 8.8.8.8
 DNSMASQ_LAN_DOMAIN ?=
 
+# ── psql — shell into whichever PostgreSQL a dependent project deployed ──────
+# Empty PSQL_NAMESPACE searches every namespace; empty PSQL_USER / PSQL_DB use
+# the chart's app user and database. PSQL_USER=postgres for the superuser.
+PSQL_NAMESPACE ?=
+PSQL_SELECTOR  ?= app.kubernetes.io/name=postgresql,app.kubernetes.io/component=primary
+PSQL_CONTAINER ?= postgresql
+PSQL_USER      ?=
+PSQL_DB        ?=
+
 # ── Component versions — pin these so make recreate restores identically ─────
 CERT_MANAGER_VERSION     ?= v1.14.2
 INGRESS_NGINX_VERSION    ?= controller-v1.11.3
@@ -106,6 +115,7 @@ HERMES_MEM_LIM                ?= 2Gi
 export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL ACME_SELFCHECK_DOMAINS MONITORING GRAFANA_PASSWORD TEARDOWN_GRACE HOSTS CERT_PERSIST CERT_BACKUP_DIR
 export PAUSE_GRACE PAUSE_STATE_DIR PAUSE_LAST PAUSE_SKIP_NAMESPACES RESUME_TIMEOUT
 export DNSMASQ_LISTEN_IP DNSMASQ_DOMAINS DNSMASQ_UPSTREAM DNSMASQ_LAN_DOMAIN
+export PSQL_NAMESPACE PSQL_SELECTOR PSQL_CONTAINER PSQL_USER PSQL_DB
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -118,7 +128,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down pause resume status logs fix-context clean env hosts dnsmasq dnsmasq-down setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down
+.PHONY: all up down pause resume status logs fix-context clean env hosts dnsmasq dnsmasq-down setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down psql
 
 all: up
 
@@ -143,6 +153,7 @@ help:
 	@echo "  make monitoring-down                - Remove monitoring stack"
 	@echo "  make ollama                         - Deploy/upgrade Ollama on existing cluster"
 	@echo "  make ollama-down                    - Remove Ollama (preserves model data on host)"
+	@echo "  make psql [ARGS='-c ...']           - psql into the cluster's PostgreSQL pod"
 	@echo ""
 	@echo "Key variables (export or pass on command line):"
 	@echo "  GPU_ENABLED=true                    - Enable GPU passthrough to KinD"
@@ -170,6 +181,8 @@ help:
 	@echo "  DNSMASQ_LISTEN_IP=                  - LAN IP to serve DNS on (empty = autodetect)"
 	@echo "  DNSMASQ_DOMAINS=                    - Names to answer locally (empty = reuse HOSTS)"
 	@echo "  DNSMASQ_UPSTREAM=1.1.1.1 8.8.8.8    - Upstream resolvers for everything else"
+	@echo "  PSQL_NAMESPACE=                     - Namespace of the PostgreSQL pod (empty = search all)"
+	@echo "  PSQL_USER= / PSQL_DB=               - Role and database (empty = chart's app user/db; postgres = superuser)"
 
 env:
 	@if [ -f .env ]; then echo ".env already exists — edit it directly."; \
@@ -242,6 +255,9 @@ hermes:
 
 hermes-down:
 	@bash scripts/hermes-teardown.sh
+
+psql:
+	@bash scripts/psql.sh $(ARGS)
 
 clean:
 	@echo "🧹 Removing generated data under STORAGE_PATH (models, metrics, dashboards)..."

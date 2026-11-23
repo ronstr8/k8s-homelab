@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Open psql inside the cluster's PostgreSQL pod.
+#
+# The homelab doesn't run Postgres itself; a dependent project's Helm chart does
+# (today: logodal's Bitnami chart). So we locate the pod by its standard label
+# rather than hard-coding a namespace, and exec psql *inside* it using the
+# credentials already in the container's env, so no secret ever leaves the pod.
+#
+#   PSQL_NAMESPACE  namespace to look in (empty = search all namespaces)
+#   PSQL_SELECTOR   label selector for the server pod
+#   PSQL_USER       role to connect as (empty = the chart's app user;
+#                   "postgres" = superuser, using the chart's postgres password)
+#   PSQL_DB         database (empty = the chart's app database)
+#   PSQL_CONTAINER  container in the pod that has psql
+#   Any arguments are passed straight to psql.
+set -euo pipefail
+
+PSQL_NAMESPACE="${PSQL_NAMESPACE:-}"
+PSQL_SELECTOR="${PSQL_SELECTOR:-app.kubernetes.io/name=postgresql,app.kubernetes.io/component=primary}"
+PSQL_USER="${PSQL_USER:-}"
+PSQL_DB="${PSQL_DB:-}"
+PSQL_CONTAINER="${PSQL_CONTAINER:-postgresql}"
+
+find_pods() {
+    local scope=(--all-namespaces)
+    [[ -n "$PSQL_NAMESPACE" ]] && scope=(-n "$PSQL_NAMESPACE")
+    kubectl get pods "${scope[@]}" -l "$PSQL_SELECTOR" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}'
+}
+
+mapfile -t pods < <(find_pods)
+
+if (( ${#pods[@]} == 0 )); then
+    echo "❌ No running PostgreSQL pod matches '$PSQL_SELECTOR'${PSQL_NAMESPACE:+ in namespace $PSQL_NAMESPACE}." >&2
+    exit 1
+fi
+if (( ${#pods[@]} > 1 )); then
+    echo "❌ More than one PostgreSQL pod matches; pick one with PSQL_NAMESPACE=<ns>:" >&2
+    printf '   %s\n' "${pods[@]}" >&2
+    exit 1
+fi
+
+read -r ns pod <<<"${pods[0]}"
+
+# -t only when we have a terminal, so `make psql ARGS='-c ...' | less` still works.
+tty_flags=(-i)
+[[ -t 0 && -t 1 ]] && tty_flags=(-it)
+
+echo "🐘 $ns/$pod" >&2
+
+# Expanded inside the pod, where the chart's POSTGRES_* variables live.
+# shellcheck disable=SC2016
+exec kubectl exec "${tty_flags[@]}" -n "$ns" "$pod" -c "$PSQL_CONTAINER" -- \
+    env PSQL_USER="$PSQL_USER" PSQL_DB="$PSQL_DB" sh -c '
+        user="${PSQL_USER:-${POSTGRES_USER:-postgres}}"
+        if [ "$user" = postgres ]; then
+            export PGPASSWORD="${POSTGRES_POSTGRES_PASSWORD:-$POSTGRES_PASSWORD}"
+            db="${PSQL_DB:-postgres}"
+        else
+            export PGPASSWORD="$POSTGRES_PASSWORD"
+            db="${PSQL_DB:-${POSTGRES_DATABASE:-$user}}"
+        fi
+        exec psql -h 127.0.0.1 -U "$user" -d "$db" "$@"
+    ' psql "$@"

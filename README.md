@@ -331,6 +331,8 @@ Copy `.env.example` to `.env` with `make env`. Every variable can also be export
 | `PAUSE_LAST` | (empty) | Space-separated `namespace/name` Deployments drained last on `make pause`, just before StatefulSets. See [Host maintenance](#host-maintenance-pause--resume) |
 | `PAUSE_GRACE` | `120` | Seconds per workload drain and for `docker stop` on `make pause` |
 | `PAUSE_SKIP_NAMESPACES` | control-plane namespaces | Namespaces left running through a pause |
+| `PSQL_NAMESPACE` | (empty) | Namespace of the PostgreSQL pod `make psql` opens; empty searches all namespaces |
+| `PSQL_USER` / `PSQL_DB` | chart's app user / db | Role and database for `make psql`; `PSQL_USER=postgres` uses the chart's superuser password |
 | `RESUME_TIMEOUT` | `300` | Seconds to wait for the node and each workload on `make resume` |
 
 ### Optional components
@@ -558,6 +560,7 @@ make clean           # Prompt, then delete STORAGE_PATH (all PV data) on the hos
 make status          # Show cluster/node/context state
 make fix-context     # Repair kubectl context if it breaks
 make logs            # Dump control-plane container logs
+make psql            # psql into the cluster's PostgreSQL (PSQL_USER=postgres for superuser, ARGS='-c ...')
 make help            # Full variable reference
 ```
 
