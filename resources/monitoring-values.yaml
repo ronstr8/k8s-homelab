@@ -74,13 +74,15 @@ grafana:
     enabled: true
     storageClassName: standard
     size: 1Gi
+  # Grafana 13 needs well over 256Mi to start and render a dashboard; at that
+  # limit it was OOMKilled mid-page-load (browser shows ChunkLoadError).
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
       memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
 
 kube-state-metrics:
   resources:
