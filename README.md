@@ -382,7 +382,7 @@ make monitoring             # add to an existing cluster
 make monitoring-down        # remove
 ```
 
-Default Grafana password is `homelab` — override with `GRAFANA_PASSWORD` (the `.env.example` ships `changeme`; set your own). Alertmanager starts with a null receiver; for email alerts, edit the commented block in `resources/monitoring-values.yaml`. After install, pin `PROMETHEUS_CHART_VERSION` (see [version pinning](#component-version-pinning)).
+Grafana is served at `GRAFANA_INGRESS_HOST` (placeholder `grafana.example.com` if unset; `make hosts` and `make dnsmasq` pick it up). Default Grafana password is `homelab` — override with `GRAFANA_PASSWORD` (the `.env.example` ships `changeme`; set your own). Alertmanager starts with a null receiver; for email alerts, edit the commented block in `resources/monitoring-values.yaml`. After install, pin `PROMETHEUS_CHART_VERSION` (see [version pinning](#component-version-pinning)).
 
 ### Ollama (local LLM inference)
 

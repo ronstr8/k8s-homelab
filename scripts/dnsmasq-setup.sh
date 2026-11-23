@@ -45,7 +45,7 @@ set -euo pipefail
 # ── Re-exec as root ──────────────────────────────────────────────────────────
 if [[ "${EUID}" -ne 0 ]]; then
   echo "🔐 dnsmasq setup needs root — re-running with sudo..."
-  exec sudo --preserve-env=DNSMASQ_LISTEN_IP,DNSMASQ_DOMAINS,DNSMASQ_UPSTREAM,DNSMASQ_LAN_DOMAIN,HOSTS,OLLAMA_INGRESS_HOST,HERMES_DASHBOARD_INGRESS_HOST,PATH bash "$0" "$@"
+  exec sudo --preserve-env=DNSMASQ_LISTEN_IP,DNSMASQ_DOMAINS,DNSMASQ_UPSTREAM,DNSMASQ_LAN_DOMAIN,HOSTS,OLLAMA_INGRESS_HOST,HERMES_DASHBOARD_INGRESS_HOST,GRAFANA_INGRESS_HOST,PATH bash "$0" "$@"
 fi
 
 CONF="/etc/dnsmasq.d/homelab.conf"
@@ -61,9 +61,10 @@ if [[ -z "${DOMAINS}" ]]; then
   DOMAINS="${HOSTS:-}"
   [[ -n "${OLLAMA_INGRESS_HOST:-}" ]] && DOMAINS="${DOMAINS} ${OLLAMA_INGRESS_HOST}"
   [[ -n "${HERMES_DASHBOARD_INGRESS_HOST:-}" ]] && DOMAINS="${DOMAINS} ${HERMES_DASHBOARD_INGRESS_HOST}"
-  # Deliberately not mirroring update-hosts.sh's hardcoded grafana.example.com:
-  # a placeholder domain is harmless in /etc/hosts but this resolver answers the
-  # whole LAN. Set MONITORING's real hostname via DNSMASQ_DOMAINS if you need it.
+  # Only an explicit GRAFANA_INGRESS_HOST — unlike update-hosts.sh, never the
+  # grafana.example.com fallback: a placeholder domain is harmless in
+  # /etc/hosts, but this resolver answers the whole LAN.
+  [[ -n "${GRAFANA_INGRESS_HOST:-}" ]] && DOMAINS="${DOMAINS} ${GRAFANA_INGRESS_HOST}"
 fi
 
 # Upstream resolvers for everything else.

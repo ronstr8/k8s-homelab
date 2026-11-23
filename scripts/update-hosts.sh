@@ -32,7 +32,7 @@ HOSTS="${HOSTS:-}"
 # Append enabled optional-component ingress hosts if set
 [[ -n "${OLLAMA_INGRESS_HOST:-}" ]] && HOSTS="${HOSTS} ${OLLAMA_INGRESS_HOST}"
 [[ -n "${HERMES_DASHBOARD_INGRESS_HOST:-}" ]] && HOSTS="${HOSTS} ${HERMES_DASHBOARD_INGRESS_HOST}"
-[[ "${MONITORING:-false}" == "true" ]] && HOSTS="${HOSTS} grafana.example.com"
+[[ "${MONITORING:-false}" == "true" ]] && HOSTS="${HOSTS} ${GRAFANA_INGRESS_HOST:-grafana.example.com}"
 
 NODE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
   "${CLUSTER_NAME}-control-plane" 2>/dev/null || true)

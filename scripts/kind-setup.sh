@@ -451,7 +451,7 @@ fi
 # ── 10. Monitoring (optional) ────────────────────────────────────────────────
 if [ "${MONITORING:-false}" = "true" ]; then
   bash "$(dirname "$0")/monitoring-setup.sh"
-  echo "   ${NODE_IP} grafana.example.com"
+  echo "   ${NODE_IP} ${GRAFANA_INGRESS_HOST:-grafana.example.com}"
 fi
 
 # ── 11. Ollama (optional) ────────────────────────────────────────────────────

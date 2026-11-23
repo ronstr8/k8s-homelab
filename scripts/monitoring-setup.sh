@@ -3,6 +3,7 @@
 set -euo pipefail
 
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-homelab}"
+GRAFANA_HOST="${GRAFANA_INGRESS_HOST:-grafana.example.com}"
 
 echo "📊 Installing monitoring stack (kube-prometheus-stack)..."
 
@@ -24,6 +25,7 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   --namespace monitoring \
   --values resources/monitoring-values.yaml \
   --set grafana.adminPassword="${GRAFANA_PASSWORD}" \
+  --set "grafana.ingress.hosts[0]=${GRAFANA_HOST}" \
   ${VERSION_FLAG} \
   --timeout 10m \
   --wait
@@ -32,6 +34,6 @@ NODE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{
 
 echo ""
 echo "✅ Monitoring stack installed!"
-echo "   Grafana: http://grafana.example.com  (admin / ${GRAFANA_PASSWORD})"
-echo "   Add to /etc/hosts:  ${NODE_IP}  grafana.example.com"
+echo "   Grafana: http://${GRAFANA_HOST}  (admin / ${GRAFANA_PASSWORD})"
+echo "   Add to /etc/hosts:  ${NODE_IP}  ${GRAFANA_HOST}"
 echo ""

@@ -67,6 +67,7 @@ grafana:
   ingress:
     enabled: true
     ingressClassName: nginx
+    # Overridden at install time from GRAFANA_INGRESS_HOST.
     hosts:
       - grafana.example.com
   persistence:
