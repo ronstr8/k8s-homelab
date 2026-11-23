@@ -333,6 +333,7 @@ Copy `.env.example` to `.env` with `make env`. Every variable can also be export
 | `PAUSE_SKIP_NAMESPACES` | control-plane namespaces | Namespaces left running through a pause |
 | `PSQL_NAMESPACE` | (empty) | Namespace of the PostgreSQL pod `make psql` opens; empty searches all namespaces |
 | `PSQL_USER` / `PSQL_DB` | chart's app user / db | Role and database for `make psql`; `PSQL_USER=postgres` uses the chart's superuser password |
+| `REDIS_NAMESPACE` | (empty) | Namespace of the Redis pod `make redis-cli` opens; empty searches all namespaces |
 | `RESUME_TIMEOUT` | `300` | Seconds to wait for the node and each workload on `make resume` |
 
 ### Optional components
@@ -565,6 +566,7 @@ make status          # Show cluster/node/context state
 make fix-context     # Repair kubectl context if it breaks
 make logs            # Dump control-plane container logs
 make psql            # psql into the cluster's PostgreSQL (PSQL_USER=postgres for superuser, ARGS='-c ...')
+make redis-cli       # redis-cli into the cluster's Redis (ARGS='--scan --count 100')
 make help            # Full variable reference
 ```
 

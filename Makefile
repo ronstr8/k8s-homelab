@@ -55,6 +55,11 @@ PSQL_CONTAINER ?= postgresql
 PSQL_USER      ?=
 PSQL_DB        ?=
 
+# ── redis-cli — same idea, for whichever Redis a dependent project deployed ───
+REDIS_NAMESPACE ?=
+REDIS_SELECTOR  ?= app.kubernetes.io/name=redis,app.kubernetes.io/component=master
+REDIS_CONTAINER ?= redis
+
 # ── Component versions — pin these so make recreate restores identically ─────
 CERT_MANAGER_VERSION     ?= v1.14.2
 INGRESS_NGINX_VERSION    ?= controller-v1.11.3
@@ -118,6 +123,7 @@ export CLUSTER_NAME REGISTRY_NAME REGISTRY_PORT STORAGE_PATH ACME_EMAIL ACME_SEL
 export PAUSE_GRACE PAUSE_STATE_DIR PAUSE_LAST PAUSE_SKIP_NAMESPACES RESUME_TIMEOUT
 export DNSMASQ_LISTEN_IP DNSMASQ_DOMAINS DNSMASQ_UPSTREAM DNSMASQ_LAN_DOMAIN
 export PSQL_NAMESPACE PSQL_SELECTOR PSQL_CONTAINER PSQL_USER PSQL_DB
+export REDIS_NAMESPACE REDIS_SELECTOR REDIS_CONTAINER
 export CERT_MANAGER_VERSION INGRESS_NGINX_VERSION PROMETHEUS_CHART_VERSION
 export GPU_ENABLED GPU_VENDOR NVIDIA_DEVICE_PLUGIN_VERSION
 export OLLAMA OLLAMA_DATA_PATH OLLAMA_MODEL OLLAMA_CONTEXT_LENGTH OLLAMA_NAMESPACE OLLAMA_STORAGE
@@ -130,7 +136,7 @@ export HERMES_DASHBOARD_CLUSTER_ISSUER
 export HERMES_CPU_REQ HERMES_CPU_LIM HERMES_MEM_REQ HERMES_MEM_LIM
 export HOST_UID HOST_GID
 
-.PHONY: all up down pause resume status logs fix-context clean env hosts dnsmasq dnsmasq-down setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down psql
+.PHONY: all up down pause resume status logs fix-context clean env hosts dnsmasq dnsmasq-down setup-gpu certs-save certs-restore monitoring monitoring-down ollama ollama-down hermes hermes-down psql redis-cli
 
 all: up
 
@@ -156,6 +162,7 @@ help:
 	@echo "  make ollama                         - Deploy/upgrade Ollama on existing cluster"
 	@echo "  make ollama-down                    - Remove Ollama (preserves model data on host)"
 	@echo "  make psql [ARGS='-c ...']           - psql into the cluster's PostgreSQL pod"
+	@echo "  make redis-cli [ARGS='keys *']      - redis-cli into the cluster's Redis pod"
 	@echo ""
 	@echo "Key variables (export or pass on command line):"
 	@echo "  GPU_ENABLED=true                    - Enable GPU passthrough to KinD"
@@ -185,6 +192,7 @@ help:
 	@echo "  DNSMASQ_UPSTREAM=1.1.1.1 8.8.8.8    - Upstream resolvers for everything else"
 	@echo "  PSQL_NAMESPACE=                     - Namespace of the PostgreSQL pod (empty = search all)"
 	@echo "  PSQL_USER= / PSQL_DB=               - Role and database (empty = chart's app user/db; postgres = superuser)"
+	@echo "  REDIS_NAMESPACE=                    - Namespace of the Redis pod (empty = search all)"
 
 env:
 	@if [ -f .env ]; then echo ".env already exists — edit it directly."; \
@@ -260,6 +268,9 @@ hermes-down:
 
 psql:
 	@bash scripts/psql.sh $(ARGS)
+
+redis-cli:
+	@bash scripts/redis-cli.sh $(ARGS)
 
 clean:
 	@echo "🧹 Removing generated data under STORAGE_PATH (models, metrics, dashboards)..."
